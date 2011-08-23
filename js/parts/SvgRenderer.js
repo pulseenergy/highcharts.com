@@ -276,11 +276,11 @@ SVGElement.prototype = {
 		normalizer = strokeWidth % 2 / 2;
 
 		// normalize for crisp edges
-		values.x = mathFloor(x || wrapper.x || 0) + normalizer;
-		values.y = mathFloor(y || wrapper.y || 0) + normalizer;
-		values.width = mathFloor((width || wrapper.width || 0) - 2 * normalizer);
-		values.height = mathFloor((height || wrapper.height || 0) - 2 * normalizer);
-		values.strokeWidth = strokeWidth;
+		values.x = (x || wrapper.x || 0) + normalizer;
+		values.y = (y || wrapper.y || 0) + normalizer;
+		values.width = (width || wrapper.width || 0) - 2 * normalizer;
+		values.height = (height || wrapper.height || 0) - 2 * normalizer;
+		// NOTE-CLC Removed flooring from the four lines above because snapping to integers makes the bar-chart points align disjointedly.
 
 		for (key in values) {
 			if (wrapper[key] !== values[key]) { // only set attribute if changed
