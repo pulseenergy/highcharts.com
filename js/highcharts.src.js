@@ -1850,7 +1850,8 @@ SVGElement.prototype = {
 		values.width = (width || wrapper.width || 0) - 2 * normalizer;
 		values.height = (height || wrapper.height || 0) - 2 * normalizer;
 		// NOTE-CLC Removed flooring from the four lines above because snapping to integers makes the bar-chart points align disjointedly.
-
+		values.strokeWidth = strokeWidth;
+		
 		for (key in values) {
 			if (wrapper[key] !== values[key]) { // only set attribute if changed
 				wrapper[key] = attr[key] = values[key];
