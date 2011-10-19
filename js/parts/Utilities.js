@@ -40,6 +40,14 @@ function isObject(obj) {
 }
 
 /**
+ * Check for array
+ * @param {Object} obj
+ */
+function isArray(obj) {
+	return Object.prototype.toString.call(obj) === '[object Array]';
+}
+
+/**
  * Check for number
  * @param {Object} n
  */
@@ -116,12 +124,8 @@ function attr(elem, prop, value) {
  * MooTools' $.splat.
  */
 function splat(obj) {
-	if (!obj || obj.constructor !== Array) {
-		obj = [obj];
-	}
-	return obj;
+	return isArray(obj) ? obj : [obj];
 }
-
 
 
 /**
@@ -153,23 +157,6 @@ function css(el, styles) {
 	}
 	extend(el.style, styles);
 }
-
-/* *
- * Get CSS value on a given element
- * @param {Object} el DOM object
- * @param {String} styleProp Camel cased CSS propery
- * /
-function getStyle (el, styleProp) {
-	var ret,
-		CURRENT_STYLE = 'currentStyle',
-		GET_COMPUTED_STYLE = 'getComputedStyle';
-	if (el[CURRENT_STYLE]) {
-		ret = el[CURRENT_STYLE][styleProp];
-	} else if (win[GET_COMPUTED_STYLE]) {
-		ret = win[GET_COMPUTED_STYLE](el, null).getPropertyValue(hyphenate(styleProp));
-	}
-	return ret;
-}*/
 
 /**
  * Utility function to create element with attributes and styles
@@ -256,7 +243,6 @@ dateFormat = function (format, timestamp, capitalize) {
 		fullYear = date[getFullYear](),
 		lang = defaultOptions.lang,
 		langWeekdays = lang.weekdays,
-		langMonths = lang.months,
 		/* // uncomment this and the 'W' format key below to enable week numbers
 		weekNumber = function() {
 			var clone = new Date(date.valueOf()),
@@ -281,8 +267,8 @@ dateFormat = function (format, timestamp, capitalize) {
 			//'W': weekNumber(),
 
 			// Month
-			'b': langMonths[month].substr(0, 3), // Short month, like 'Jan'
-			'B': langMonths[month], // Long month, like 'January'
+			'b': lang.shortMonths[month], // Short month, like 'Jan'
+			'B': lang.months[month], // Long month, like 'January'
 			'm': pad(month + 1), // Two digit month number, 01 through 12
 
 			// Year
@@ -367,12 +353,15 @@ ChartCounters.prototype = {
  */
 function placeBox(boxWidth, boxHeight, outerLeft, outerTop, outerWidth, outerHeight, point) {
 	// keep the box within the chart area
-	var x = point.x - boxWidth + outerLeft - 25,
-		y = point.y - boxHeight + outerTop + 10;
+	var pointX = point.x,
+		pointY = point.y,
+		x = pointX - boxWidth + outerLeft - 25,
+		y = pointY - boxHeight + outerTop + 10,
+		alignedRight;
 
 	// it is too far to the left, adjust it
 	if (x < 7) {
-		x = outerLeft + point.x + 15;
+		x = outerLeft + pointX + 15;
 	}
 
 	// Test to see if the tooltip is to far to the right,
@@ -380,17 +369,18 @@ function placeBox(boxWidth, boxHeight, outerLeft, outerTop, outerWidth, outerHei
 	if ((x + boxWidth) > (outerLeft + outerWidth)) {
 		x -= (x + boxWidth) - (outerLeft + outerWidth);
 		y -= boxHeight;
+		alignedRight = true;
 	}
 
 	if (y < 5) {
 		y = 5; // above
 
 		// If the tooltip is still covering the point, move it below instead
-		if (point.y >= y && point.y <= (y + boxHeight)) {
-			y = point.y + boxHeight - 5; // below
+		if (alignedRight && pointY >= y && pointY <= (y + boxHeight)) {
+			y = pointY + boxHeight - 5; // below
 		}
-	} else if (y + boxHeight > outerHeight) {
-		y = outerHeight - boxHeight - 5; // below
+	} else if (y + boxHeight > outerTop + outerHeight) {
+		y = outerTop + outerHeight - boxHeight - 5; // below
 	}
 
 	return {x: x, y: y};
@@ -417,5 +407,24 @@ function stableSort(arr, sortFunction) {
 	// Remove index from items
 	for (i = 0; i < length; i++) {
 		delete arr[i].ss_i; // stable sort index
+	}
+}
+
+/**
+ * Utility method that destroys any SVGElement or VMLElement that are properties on the given object.
+ * It loops all properties and invokes destroy if there is a destroy method. The property is
+ * then delete'ed.
+ */
+function destroyObjectProperties(obj) {
+	var n;
+	for (n in obj) {
+		// If the object is non-null and destroy is defined
+		if (obj[n] && obj[n].destroy) {
+			// Invoke the destroy
+			obj[n].destroy();
+		}
+
+		// Delete the property from the object.
+		delete obj[n];
 	}
 }

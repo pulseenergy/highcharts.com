@@ -1,11 +1,18 @@
 var AdaptersTest = TestCase('AdaptersTest');
 
+AdaptersTest.prototype.setUp = function () {
+	// Map the three event functions to call our own instead.
+	this.eventMonitor = new EventMonitor(addEvent, removeEvent, fireEvent);
+}
+
 /**
  * At tear down, log output from the event monitor and reset.
  */
 AdaptersTest.prototype.tearDown = function() {
-	eventMonitor.log();
-	eventMonitor.reset();
+	this.eventMonitor.log();
+	this.eventMonitor.reset();
+	this.eventMonitor.disconnect();
+	this.eventMonitor = null;
 };
 
 /**
@@ -22,6 +29,38 @@ AdaptersTest.prototype.testEach = function() {
 
 	// Assert
 	assertEquals('each value', 2, arr[0]);
+};
+
+/**
+ * Test the each method with various numbers of parameters.
+ */
+AdaptersTest.prototype.testEachParams = function() {
+	var arr = [{hello: undefined}];
+
+	// Test indexing the array
+	each(arr, function (value, i) {
+		arr[i].hello = 'world';
+	});
+
+	assertEquals('each index', 'world', arr[0].hello);
+
+	// Test without index
+	arr = [{hello: undefined}];
+	assertUndefined('each value undefined', arr[0].hello);
+	each(arr, function (value) {
+		value.hello = 'world';
+	});
+
+	assertEquals('each value', 'world', arr[0].hello);
+
+	// Test with no parameters at all
+	arr = [{hello: undefined}];
+	assertUndefined('each no-param undefined', arr[0].hello);
+	each(arr, function () {
+		arr[0].hello = 'world';
+	});
+
+	assertEquals('each no-param', 'world', arr[0].hello);
 };
 
 /**

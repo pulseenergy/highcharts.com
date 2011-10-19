@@ -74,19 +74,24 @@ Point.prototype = {
 	destroy: function () {
 		var point = this,
 			series = point.series,
+			hoverPoints = series.chart.hoverPoints,
 			prop;
 
 		series.chart.pointCount--;
 
+		if (hoverPoints) {
+			point.setState();
+			erase(hoverPoints, point);
+		}
 		if (point === series.chart.hoverPoint) {
 			point.onMouseOut();
 		}
-		series.chart.hoverPoints = null; // remove reference
+
 
 		// remove all events
 		removeEvent(point);
 
-		each(['graphic', 'tracker', 'group', 'dataLabel', 'connector'], function (prop) {
+		each(['graphic', 'tracker', 'group', 'dataLabel', 'connector', 'shadowGroup'], function (prop) {
 			if (point[prop]) {
 				point[prop].destroy();
 			}
@@ -129,23 +134,24 @@ Point.prototype = {
 			series = point.series,
 			chart = series.chart;
 
-		point.selected = selected = pick(selected, !point.selected);
+		selected = pick(selected, !point.selected);
 
-		//series.isDirty = true;
-		point.firePointEvent(selected ? 'select' : 'unselect');
-		point.setState(selected && SELECT_STATE);
+		// fire the event with the defalut handler
+		point.firePointEvent(selected ? 'select' : 'unselect', { accumulate: accumulate }, function () {
+			point.selected = selected;
+			point.setState(selected && SELECT_STATE);
 
-		// unselect all other points unless Ctrl or Cmd + click
-		if (!accumulate) {
-			each(chart.getSelectedPoints(), function (loopPoint) {
-				if (loopPoint.selected && loopPoint !== point) {
-					loopPoint.selected = false;
-					loopPoint.setState(NORMAL_STATE);
-					loopPoint.firePointEvent('unselect');
-				}
-			});
-		}
-
+			// unselect all other points unless Ctrl or Cmd + click
+			if (!accumulate) {
+				each(chart.getSelectedPoints(), function (loopPoint) {
+					if (loopPoint.selected && loopPoint !== point) {
+						loopPoint.selected = false;
+						loopPoint.setState(NORMAL_STATE);
+						loopPoint.firePointEvent('unselect');
+					}
+				});
+			}
+		});
 	},
 
 	onMouseOver: function () {
@@ -209,7 +215,6 @@ Point.prototype = {
 	update: function (options, redraw, animation) {
 		var point = this,
 			series = point.series,
-			dataLabel = point.dataLabel,
 			graphic = point.graphic,
 			chart = series.chart;
 
@@ -1114,8 +1119,8 @@ Series.prototype = {
 	destroy: function () {
 		var series = this,
 			chart = series.chart,
+			seriesClipRect = series.clipRect,
 			//chartSeries = series.chart.series,
-			clipRect = series.clipRect,
 			issue134 = /\/5[0-9\.]+ (Safari|Mobile)\//.test(userAgent), // todo: update when Safari bug is fixed
 			destroy,
 			prop;
@@ -1135,6 +1140,13 @@ Series.prototype = {
 		each(series.data, function (point) {
 			point.destroy();
 		});
+
+		// If this series clipRect is not the global one (which is removed on chart.destroy) we
+		// destroy it here.
+		if (seriesClipRect && seriesClipRect !== chart.clipRect) {
+			series.clipRect = seriesClipRect.destroy();
+		}
+
 		// destroy all SVGElements associated to the series
 		each(['area', 'graph', 'dataLabelsGroup', 'group', 'tracker'], function (prop) {
 			if (series[prop]) {
@@ -1224,13 +1236,13 @@ Series.prototype = {
 			options.style.color = pick(color, series.color, 'black');
 
 			// make the labels for each point
-			each(data, function (point, i) {
+			each(data, function (point) {
 				var barX = point.barX,
 					plotX = (barX && barX + point.barW / 2) || point.plotX || -999,
 					plotY = pick(point.plotY, -999),
 					dataLabel = point.dataLabel,
 					align = options.align,
-					individualYDelta = yIsNull ? (point.y > 0 ? -6 : 12) : options.y;
+					individualYDelta = yIsNull ? (point.y >= 0 ? -6 : 12) : options.y;
 
 				// get the string
 				str = options.formatter.call(point.getLabelConfig());
@@ -1307,7 +1319,7 @@ Series.prototype = {
 	/**
 	 * Draw the actual graph
 	 */
-	drawGraph: function (state) {
+	drawGraph: function () {
 		var series = this,
 			options = series.options,
 			chart = series.chart,
@@ -1422,7 +1434,7 @@ Series.prototype = {
 
 		// draw the graph
 		if (graph) {
-			//graph.animate({ d: graphPath.join(' ') });
+			stop(graph); // cancel running animations, #459
 			graph.animate({ d: graphPath });
 
 		} else {
@@ -1546,7 +1558,6 @@ Series.prototype = {
 	redraw: function () {
 		var series = this,
 			chart = series.chart,
-			clipRect = series.clipRect,
 			group = series.group;
 
 		/*if (clipRect) {
@@ -1768,7 +1779,7 @@ Series.prototype = {
 					fill: NONE,
 					'stroke-width' : options.lineWidth + 2 * snap,
 					visibility: series.visible ? VISIBLE : HIDDEN,
-					zIndex: 1
+					zIndex: options.zIndex || 1
 				})
 				.on(hasTouch ? 'touchstart' : 'mouseover', function () {
 					if (chart.hoverSeries !== series) {

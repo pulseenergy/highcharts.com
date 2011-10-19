@@ -9,15 +9,15 @@ UtilTest.prototype.testExtend = function () {
 	// test extend of undefined
 	result = extend(undefined, extra);
 	assertEquals("Extended undefined", 2, this.countMembers(result));
-	
+
 	// test extend of null
 	result = extend(null, extra);
 	assertEquals("Extended null", 2, this.countMembers(result));
-	
+
 	// test extend of empty
 	result = extend(empty, extra);
 	assertEquals("Extended empty object", 2, this.countMembers(result));
-	
+
 	// test extend of same object
 	result = extend(extra, extra);
 	assertEquals("Extended object with object", 2, this.countMembers(result));
@@ -32,7 +32,7 @@ UtilTest.prototype.countMembers = function (obj) {
 	for (var member in obj) {
 		count++;
 	}
-	
+
 	return count;
 };
 
@@ -82,7 +82,32 @@ UtilTest.prototype.testIsObject = function () {
 
 	// test with object
 	assertEquals("IsObject object", true, isObject({}));
+
+	// test with array
+	assertEquals("IsObject array", true, isObject([]));
 };
+
+
+UtilTest.prototype.testIsArray = function () {
+	// test with undefined
+	assertEquals("isArray undefined", false, isArray(undefined));
+
+	// test with null
+	assertEquals("isArray null", false, isArray(null));
+
+	// test with number
+	assertEquals("isArray number", false, isArray(15));
+
+	// test with string
+	assertEquals("isArray string", false, isArray("this is a string"));
+
+	// test with object
+	assertEquals("isArray object", false, isArray({}));
+
+	// test with array
+	assertEquals("isArray array", true, isArray([]));
+		
+}
 
 UtilTest.prototype.testIsNumber = function () {
 	// test with undefined
@@ -101,6 +126,31 @@ UtilTest.prototype.testIsNumber = function () {
 	assertEquals("IsNumber object", false, isNumber({}));
 };
 
+UtilTest.prototype.testSplat = function() {
+	
+	// test with undefined
+	assertEquals("splat undefined", 1, splat(undefined).length);
+	
+	// test with null
+	assertEquals("splat null", 1, splat(null).length);
+	
+	// test with false
+	assertEquals("splat false", 1, splat(false).length);
+	
+	// test with 0
+	assertEquals("splat 0", 1, splat(0).length);
+	
+	// test with ""
+	assertEquals("splat 0", 1, splat("").length);
+	
+	// test with object
+	assertEquals("splat object", 1, splat({}).length);
+	
+	// test with array
+	assertEquals("splat array", 3, splat([1,2,3]).length);
+};
+
+
 UtilTest.prototype.testLog2Lin = function () {
 	// TODO: implement
 };
@@ -111,11 +161,11 @@ UtilTest.prototype.testLin2Log = function () {
 
 /**
  * Tests if a point is inside a rectangle
- * The rectangle coordinate system is: x and y specifies the _top_ left corner width is the width and height is the height. 
+ * The rectangle coordinate system is: x and y specifies the _top_ left corner width is the width and height is the height.
  */
 UtilTest.prototype.pointInRect = function (x, y, rect) {
-	var inside = 
-		x >= rect.x && x <= (rect.x + rect.width) && 
+	var inside =
+		x >= rect.x && x <= (rect.x + rect.width) &&
 		y >= rect.y && y <= (rect.y + rect.height)
 	return inside;
 };
@@ -200,4 +250,40 @@ UtilTest.prototype.testStableSort = function () {
 
 	assertEquals('Stable sort in action', 'ABCDEFGHIJK', result.join(''));
 	assertUndefined('Stable sort index should not be there', arr[0].ss_i);
+};
+
+
+/**
+ * Tests that destroyObjectProperties calls the destroy method on properties before delete.
+ */
+UtilTest.prototype.testDestroyObjectProperties = function () {
+	var testObject = {}, // Test object with the properties to destroy
+		destroyCount = 0; // Number of destroy calls made
+
+	/**
+	 * Class containing a destroy method.
+	 */
+	function DummyWithDestroy() {};
+
+	DummyWithDestroy.prototype.destroy = function () {
+		destroyCount++;
+		return null;
+	};
+
+	// Setup three properties with destroy methods
+	testObject.rect = new DummyWithDestroy();
+	testObject.line = new DummyWithDestroy();
+	testObject.label = new DummyWithDestroy();
+
+	// And one without
+	testObject.noDestroy = {};
+
+	// Destroy them all
+	destroyObjectProperties(testObject);
+
+	assertEquals('Number of destroyed elements', 3, destroyCount);
+	assertUndefined('Property should be undefined', testObject.rect);
+	assertUndefined('Property should be undefined', testObject.line);
+	assertUndefined('Property should be undefined', testObject.label);
+	assertUndefined('Property should be undefined', testObject.noDestroy);
 };

@@ -49,6 +49,7 @@ SVGElement.prototype = {
 			renderer = this.renderer,
 			skipAttr,
 			shadows = this.shadows,
+			htmlNode = this.htmlNode,
 			hasSetSymbolSize,
 			ret = this;
 
@@ -163,8 +164,8 @@ SVGElement.prototype = {
 				} else if (key === 'align') {
 					key = 'text-anchor';
 					value = { left: 'start', center: 'middle', right: 'end' }[value];
-				
-				
+
+
 				// Title requires a subnode, #431
 				} else if (key === 'title') {
 					var title = doc.createElementNS(SVG_NS, 'title');
@@ -217,6 +218,33 @@ SVGElement.prototype = {
 				} else if (!skipAttr) {
 					//element.setAttribute(key, value);
 					attr(element, key, value);
+				}
+
+				// Issue #38
+				if (htmlNode && (key === 'x' || key === 'y' ||
+						key === 'translateX' || key === 'translateY' || key === 'visibility')) {
+					var wrapper = this,
+						bBox,
+						arr = htmlNode.length ? htmlNode : [this],
+						length = arr.length,
+						itemWrapper,
+						j;
+					
+					for (j = 0; j < length; j++) {
+						itemWrapper = arr[j];
+						bBox = itemWrapper.getBBox();
+						htmlNode = itemWrapper.htmlNode; // reassign to child item
+						css(htmlNode, extend(wrapper.styles, {
+							left: (bBox.x + (wrapper.translateX || 0)) + PX,
+							top: (bBox.y + (wrapper.translateY || 0)) + PX
+						}));
+
+						if (key === 'visibility') {
+							css(htmlNode, {
+								visibility: value
+							});
+						}
+					}
 				}
 
 			}
@@ -303,12 +331,14 @@ SVGElement.prototype = {
 	 * @param {Object} styles
 	 */
 	css: function (styles) {
+		/*jslint unparam: true*//* allow unused param a in the regexp function below */
 		var elemWrapper = this,
 			elem = elemWrapper.element,
 			textWidth = styles && styles.width && elem.nodeName === 'text',
 			n,
 			serializedCss = '',
 			hyphenate = function (a, b) { return '-' + b.toLowerCase(); };
+		/*jslint unparam: false*/
 
 		// convert legacy
 		if (styles && styles.color) {
@@ -574,6 +604,14 @@ SVGElement.prototype = {
 			renderer.buildText(this);
 		}
 
+		// register html spans in groups
+		if (parent && this.htmlNode) {
+			if (!parent.htmlNode) {
+				parent.htmlNode = [];
+			}
+			parent.htmlNode.push(this);
+		}
+
 		// mark the container as having z indexed children
 		if (zIndex) {
 			parentWrapper.handleZ = true;
@@ -614,11 +652,24 @@ SVGElement.prototype = {
 			element = wrapper.element || {},
 			shadows = wrapper.shadows,
 			parentNode = element.parentNode,
-			key;
+			key,
+			i;
 
 		// remove events
 		element.onclick = element.onmouseout = element.onmouseover = element.onmousemove = null;
 		stop(wrapper); // stop running animations
+
+		if (wrapper.clipPath) {
+			wrapper.clipPath = wrapper.clipPath.destroy();
+		}
+
+		// Destroy stops in case this is a gradient object
+		if (wrapper.stops) {
+			for (i = 0; i < wrapper.stops.length; i++) {
+				wrapper.stops[i] = wrapper.stops[i].destroy();
+			}
+			wrapper.stops = null;
+		}
 
 		// remove element
 		if (parentNode) {
@@ -736,11 +787,41 @@ SVGRenderer.prototype = {
 		renderer.url = isIE ? '' : loc.href.replace(/#.*?$/, ''); // page url used for internal references
 		renderer.defs = this.createElement('defs').add();
 		renderer.forExport = forExport;
+		renderer.gradients = []; // Array where gradient SvgElements are stored
 
 		renderer.setSize(width, height, false);
 
 	},
 
+	/**
+	 * Destroys the renderer and its allocated members.
+	 */
+	destroy: function () {
+		var renderer = this,
+			i,
+			rendererGradients = renderer.gradients,
+			rendererDefs = renderer.defs;
+		renderer.box = null;
+		renderer.boxWrapper = renderer.boxWrapper.destroy();
+
+		// Call destroy on all gradient elements
+		if (rendererGradients) { // gradients are null in VMLRenderer
+			for (i = 0; i < rendererGradients.length; i++) {
+				renderer.gradients[i] = rendererGradients[i].destroy();
+			}
+			renderer.gradients = null;
+		}
+
+		// Defs are null in VMLRenderer
+		// Otherwise, destroy them here.
+		if (rendererDefs) {
+			renderer.defs = rendererDefs.destroy();
+		}
+
+		renderer.alignedObjects = null;
+
+		return null;
+	},
 
 	/**
 	 * Create a wrapper for an SVG element
@@ -771,9 +852,9 @@ SVGRenderer.prototype = {
 			hrefRegex = /href="([^"]+)"/,
 			parentX = attr(textNode, 'x'),
 			textStyles = wrapper.styles,
-			reverse = isFirefox && textStyles && textStyles.HcDirection === 'rtl' &&
-				!this.forExport && pInt(userAgent.split('Firefox/')[1]) < 4, // issue #38
-			arr,
+			renderAsHtml = textStyles && wrapper.useHTML && !this.forExport,
+			htmlNode = wrapper.htmlNode,
+			//arr, issue #38 workaround
 			width = textStyles && pInt(textStyles.width),
 			textLineHeight = textStyles && textStyles.lineHeight,
 			lastLine,
@@ -816,14 +897,14 @@ SVGRenderer.prototype = {
 						.replace(/&gt;/g, '>');
 
 					// issue #38 workaround.
-					if (reverse) {
+					/*if (reverse) {
 						arr = [];
 						i = span.length;
 						while (i--) {
 							arr.push(span.charAt(i));
 						}
 						span = arr.join('');
-					}
+					}*/
 
 					// add the text node
 					tspan.appendChild(doc.createTextNode(span));
@@ -903,7 +984,22 @@ SVGRenderer.prototype = {
 			});
 		});
 
+		// Fix issue #38 and allow HTML in tooltips and other labels
+		if (renderAsHtml) {
+			if (!htmlNode) {
+				htmlNode = wrapper.htmlNode = createElement('span', null, extend(textStyles, {
+					position: ABSOLUTE,
+					top: 0,
+					left: 0
+				}), this.box.parentNode);
+			}
+			htmlNode.innerHTML = wrapper.textStr;
 
+			i = childNodes.length;
+			while (i--) {
+				childNodes[i].style.visibility = HIDDEN;
+			}
+		}
 	},
 
 	/**
@@ -1271,6 +1367,7 @@ SVGRenderer.prototype = {
 
 		wrapper = this.rect(x, y, width, height, 0).add(clipPath);
 		wrapper.id = id;
+		wrapper.clipPath = clipPath;
 
 		return wrapper;
 	},
@@ -1302,7 +1399,13 @@ SVGRenderer.prototype = {
 				y2: linearGradient[3]
 			}).add(renderer.defs);
 
+			// Keep a reference to the gradient object so it is possible to destroy it later
+			renderer.gradients.push(gradientObject);
+
+			// The gradient needs to keep a list of stops to be able to destroy them
+			gradientObject.stops = [];
 			each(color.stops, function (stop) {
+				var stopObject;
 				if (regexRgba.test(stop[1])) {
 					colorObject = Color(stop[1]);
 					stopColor = colorObject.get('rgb');
@@ -1311,11 +1414,14 @@ SVGRenderer.prototype = {
 					stopColor = stop[1];
 					stopOpacity = 1;
 				}
-				renderer.createElement('stop').attr({
+				stopObject = renderer.createElement('stop').attr({
 					offset: stop[0],
 					'stop-color': stopColor,
 					'stop-opacity': stopOpacity
 				}).add(gradientObject);
+
+				// Add the stop element to the gradient
+				gradientObject.stops.push(stopObject);
 			});
 
 			return 'url(' + this.url + '#' + id + ')';
@@ -1343,8 +1449,9 @@ SVGRenderer.prototype = {
 	 * @param {String} str
 	 * @param {Number} x Left position
 	 * @param {Number} y Top position
+	 * @param {Boolean} useHTML Use HTML to render the text
 	 */
-	text: function (str, x, y) {
+	text: function (str, x, y, useHTML) {
 
 		// declare variables
 		var defaultChartStyle = defaultOptions.chart.style,
@@ -1366,6 +1473,7 @@ SVGRenderer.prototype = {
 
 		wrapper.x = x;
 		wrapper.y = y;
+		wrapper.useHTML = useHTML;
 		return wrapper;
 	}
 }; // end SVGRenderer
