@@ -123,9 +123,9 @@ var PieSeries = extendClass(Series, {
 	 */
 	animate: function () {
 		var series = this,
-			data = series.data;
+			points = series.points;
 
-		each(data, function (point) {
+		each(points, function (point) {
 			var graphic = point.graphic,
 				args = point.shapeArgs,
 				up = -mathPI / 2;
@@ -151,10 +151,22 @@ var PieSeries = extendClass(Series, {
 		series.animate = null;
 
 	},
+
+	/**
+	 * Extend the basic setData method by running processData and generatePoints immediately,
+	 * in order to access the points from the legend.
+	 */
+	setData: function () {
+		Series.prototype.setData.apply(this, arguments);
+		this.processData();
+		this.generatePoints();
+	},
 	/**
 	 * Do translation for pie slices
 	 */
 	translate: function () {
+		this.generatePoints();
+		
 		var total = 0,
 			series = this,
 			cumulative = -0.25, // start at top
@@ -169,7 +181,7 @@ var PieSeries = extendClass(Series, {
 			start,
 			end,
 			angle,
-			data = series.data,
+			points = series.points,
 			circ = 2 * mathPI,
 			fraction,
 			smallestSize = mathMin(plotWidth, plotHeight),
@@ -206,11 +218,11 @@ var PieSeries = extendClass(Series, {
 		series.center = positions;
 
 		// get the total sum
-		each(data, function (point) {
+		each(points, function (point) {
 			total += point.y;
 		});
 
-		each(data, function (point) {
+		each(points, function (point) {
 			// set start and end angle
 			fraction = total ? point.y / total : 0;
 			start = mathRound(cumulative * circ * precision) / precision;
@@ -274,7 +286,7 @@ var PieSeries = extendClass(Series, {
 		var series = this;
 
 		// cache attributes for shapes
-		//series.getAttribs();
+		series.getAttribs();
 
 		this.drawPoints();
 
@@ -289,6 +301,7 @@ var PieSeries = extendClass(Series, {
 			series.animate();
 		}
 
+		// (See #322) series.isDirty = series.isDirtyData = false; // means data is in accordance with what you see
 		series.isDirty = false; // means data is in accordance with what you see
 	},
 
@@ -307,9 +320,8 @@ var PieSeries = extendClass(Series, {
 			shadowGroup,
 			shapeArgs;
 
-
 		// draw the slices
-		each(series.data, function (point) {
+		each(series.points, function (point) {
 			graphic = point.graphic;
 			shapeArgs = point.shapeArgs;
 			group = point.group;
@@ -335,7 +347,6 @@ var PieSeries = extendClass(Series, {
 			if (shadowGroup) {
 				shadowGroup.translate(groupTranslation[0], groupTranslation[1]);
 			}
-
 
 			// draw the slice
 			if (graphic) {

@@ -3,6 +3,7 @@
  */
 var ColumnSeries = extendClass(Series, {
 	type: 'column',
+	useThreshold: true,
 	pointAttrToOptions: { // mapping between SVG attributes and the corresponding options
 		stroke: 'borderColor',
 		'stroke-width': 'borderWidth',
@@ -14,9 +15,6 @@ var ColumnSeries = extendClass(Series, {
 
 		var series = this,
 			chart = series.chart;
-
-		// flag the chart in order to pad the x axis
-		chart.hasColumn = true;
 
 		// if the series is added dynamically, force redraw of other
 		// series affected by a new column
@@ -39,8 +37,8 @@ var ColumnSeries = extendClass(Series, {
 			stacking = options.stacking,
 			borderWidth = options.borderWidth,
 			columnCount = 0,
-			reversedXAxis = series.xAxis.reversed,
-			categories = series.xAxis.categories,
+			xAxis = series.xAxis,
+			reversedXAxis = xAxis.reversed,
 			stackGroups = {},
 			stackKey,
 			columnIndex;
@@ -51,7 +49,8 @@ var ColumnSeries = extendClass(Series, {
 		// This is called on every series. Consider moving this logic to a
 		// chart.orderStacks() function and call it on init, addSeries and removeSeries
 		each(chart.series, function (otherSeries) {
-			if (otherSeries.type === series.type && otherSeries.visible) {
+			if (otherSeries.type === series.type && otherSeries.visible &&
+					series.options.group === otherSeries.options.group) { // used in Stock charts navigator series
 				if (otherSeries.options.stacking) {
 					stackKey = otherSeries.stackKey;
 					if (stackGroups[stackKey] === UNDEFINED) {
@@ -68,30 +67,27 @@ var ColumnSeries = extendClass(Series, {
 		// calculate the width and position of each column based on
 		// the number of column series in the plot, the groupPadding
 		// and the pointPadding options
-		var data = series.data,
-			closestPoints = series.closestPoints,
-			categoryWidth = mathAbs(
-				data[1] ? data[closestPoints].plotX - data[closestPoints - 1].plotX :
-				chart.plotSizeX / ((categories && categories.length) || 1)
-			),
+		var points = series.points,
+			pointRange = pick(series.pointRange, xAxis.pointRange),
+			categoryWidth = mathAbs(xAxis.translate(0) - xAxis.translate(pointRange)),
 			groupPadding = categoryWidth * options.groupPadding,
 			groupWidth = categoryWidth - 2 * groupPadding,
 			pointOffsetWidth = groupWidth / columnCount,
 			optionPointWidth = options.pointWidth,
 			pointPadding = defined(optionPointWidth) ? (pointOffsetWidth - optionPointWidth) / 2 :
 				pointOffsetWidth * options.pointPadding,
-			pointWidth = mathMax(pick(optionPointWidth, pointOffsetWidth - 2 * pointPadding), 1),
+			pointWidth = mathCeil(mathMax(pick(optionPointWidth, pointOffsetWidth - 2 * pointPadding), 1)),
 			colIndex = (reversedXAxis ? columnCount -
 				series.columnIndex : series.columnIndex) || 0,
 			pointXOffset = pointPadding + (groupPadding + colIndex *
 				pointOffsetWidth - (categoryWidth / 2)) *
 				(reversedXAxis ? -1 : 1),
-			threshold = options.threshold || 0,
+			threshold = options.threshold,
 			translatedThreshold = series.yAxis.getThreshold(threshold),
 			minPointLength = pick(options.minPointLength, 5);
 
 		// record the new values
-		each(data, function (point) {
+		each(points, function (point) {
 			var plotY = point.plotY,
 				yBottom = point.yBottom || translatedThreshold,
 				barX = point.plotX + pointXOffset,
@@ -173,7 +169,7 @@ var ColumnSeries = extendClass(Series, {
 
 
 		// draw the columns
-		each(series.data, function (point) {
+		each(series.points, function (point) {
 			var plotY = point.plotY;
 			if (plotY !== UNDEFINED && !isNaN(plotY) && point.y !== null) {
 				graphic = point.graphic;
@@ -183,7 +179,7 @@ var ColumnSeries = extendClass(Series, {
 					graphic.animate(shapeArgs);
 
 				} else {
-					point.graphic = renderer[point.shapeType](shapeArgs)
+					point.graphic = graphic = renderer[point.shapeType](shapeArgs)
 						.attr(point.pointAttr[point.selected ? SELECT_STATE : NORMAL_STATE])
 						.add(series.group)
 						.shadow(options.shadow);
@@ -208,7 +204,7 @@ var ColumnSeries = extendClass(Series, {
 			css = cursor && { cursor: cursor },
 			rel;
 
-		each(series.data, function (point) {
+		each(series.points, function (point) {
 			tracker = point.tracker;
 			shapeArgs = point.trackerArgs || point.shapeArgs;
 			delete shapeArgs.strokeWidth;
@@ -255,7 +251,7 @@ var ColumnSeries = extendClass(Series, {
 	 */
 	animate: function (init) {
 		var series = this,
-			data = series.data;
+			points = series.points;
 
 		if (!init) { // run the animation
 			/*
@@ -266,7 +262,7 @@ var ColumnSeries = extendClass(Series, {
 			 * datasets, this is the cause.
 			 */
 
-			each(data, function (point) {
+			each(points, function (point) {
 				var graphic = point.graphic,
 					shapeArgs = point.shapeArgs;
 

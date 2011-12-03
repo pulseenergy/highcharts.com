@@ -1,4 +1,3 @@
-
 /**
  * Path interpolation algorithm used across adapters
  */
@@ -39,11 +38,11 @@ pathAnim = {
 		}
 
 		// if shifting points, prepend a dummy point to the end path
-		if (shift) {
+		if (shift === 1) {
 
 			end = [].concat(end).splice(0, numParams).concat(end);
-			elem.shift = false; // reset for following animations
 		}
+		elem.shift = 0; // reset for following animations
 
 		// copy and append last point until the length matches the end length
 		if (start.length) {

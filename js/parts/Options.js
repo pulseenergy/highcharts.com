@@ -78,7 +78,7 @@ defaultLabelOptions = {
 	align: 'center',
 	x: 0,
 	y: 15,
-	/*formatter: function() {
+	/*formatter: function () {
 		return this.value;
 	},*/
 	style: {
@@ -174,6 +174,7 @@ defaultOptions = {
 			},
 			//connectNulls: false,
 			//cursor: 'default',
+			//clip: true,
 			//dashStyle: null,
 			//enableMouseTracking: true,
 			events: {},
@@ -209,7 +210,8 @@ defaultOptions = {
 					return this.y;
 				}
 			}),
-
+			cropThreshold: 300, // draw points outside the plot area when the number of points is less than this
+			pointRange: 0,
 			//pointStart: 0,
 			//pointInterval: 1,
 			showInLegend: true,
@@ -227,7 +229,15 @@ defaultOptions = {
 				}
 			},
 			stickyTracking: true
-			//zIndex: null
+			//tooltip: {
+				//pointFormat: '<span style="color:{series.color}">{series.name}</span>: <b>{point.y}</b>'
+				//yDecimals: null,
+				//xDateFormat: '%A, %b %e, %Y',
+				//yPrefix: '',
+				//ySuffix: ''				
+			//}
+			// turboThreshold: 1000
+			// zIndex: null
 		}
 	},
 	labels: {
@@ -261,7 +271,7 @@ defaultOptions = {
 			color: '#3E576F'
 		},
 		itemHoverStyle: {
-			cursor: 'pointer',
+			//cursor: 'pointer', removed as of #601
 			color: '#000000'
 		},
 		itemHiddenStyle: {
@@ -282,13 +292,13 @@ defaultOptions = {
 	},
 
 	loading: {
-		hideDuration: 100,
+		// hideDuration: 100,
 		labelStyle: {
 			fontWeight: 'bold',
 			position: RELATIVE,
 			top: '1em'
 		},
-		showDuration: 100,
+		// showDuration: 0,
 		style: {
 			position: ABSOLUTE,
 			backgroundColor: 'white',
@@ -304,6 +314,8 @@ defaultOptions = {
 		borderWidth: 2,
 		borderRadius: 5,
 		//formatter: defaultFormatter,
+		headerFormat: '<span style="font-size: 10px">{point.key}</span><br/>',
+		pointFormat: '<span style="color:{series.color}">{series.name}</span>: <b>{point.y}</b><br/>',
 		shadow: true,
 		//shared: false,
 		snap: hasTouch ? 25 : 10,
@@ -313,6 +325,10 @@ defaultOptions = {
 			padding: '5px',
 			whiteSpace: 'nowrap'
 		}
+		//xDateFormat: '%A, %b %e, %Y',
+		//yDecimals: null,
+		//yPrefix: '',
+		//ySuffix: ''
 	},
 
 	toolbar: {
@@ -341,22 +357,24 @@ defaultOptions = {
 };
 
 // Axis defaults
-var defaultXAxisOptions =  {
+/*jslint white: true*/
+var defaultXAxisOptions = {
 	// allowDecimals: null,
 	// alternateGridColor: null,
 	// categories: [],
-	dateTimeLabelFormats: {
-		second: '%H:%M:%S',
-		minute: '%H:%M',
-		hour: '%H:%M',
-		day: '%e. %b',
-		week: '%e. %b',
-		month: '%b \'%y',
-		year: '%Y'
-	},
+	dateTimeLabelFormats: hash(
+		MILLISECOND, '%H:%M:%S.%L',
+		SECOND, '%H:%M:%S',
+		MINUTE, '%H:%M',
+		HOUR, '%H:%M',
+		DAY, '%e. %b',
+		WEEK, '%e. %b',
+		MONTH, '%b \'%y',
+		YEAR, '%Y'
+	),
 	endOnTick: false,
 	gridLineColor: '#C0C0C0',
-	// gridLineDashStyle: 'solid', // docs
+	// gridLineDashStyle: 'solid',
 	// gridLineWidth: 0,
 	// reversed: false,
 
@@ -369,7 +387,7 @@ var defaultXAxisOptions =  {
 	min: null,
 	minPadding: 0.01,
 	maxPadding: 0.01,
-	//maxZoom: null,
+	//minRange: null, // docs
 	minorGridLineColor: '#E0E0E0',
 	// minorGridLineDashStyle: null,
 	minorGridLineWidth: 1,
@@ -393,7 +411,7 @@ var defaultXAxisOptions =  {
 	//}],
 	//reversed: false,
 	// showFirstLabel: true,
-	// showLastLabel: false,
+	// showLastLabel: true,
 	startOfWeek: 1,
 	startOnTick: false,
 	tickColor: '#C0D0E0',
@@ -491,7 +509,7 @@ defaultTopAxisOptions = merge(defaultBottomAxisOptions, {
 		// staggerLines: null
 	}
 });
-
+/*jslint white: false*/
 
 
 
@@ -506,10 +524,14 @@ defaultPlotOptions.scatter = merge(defaultSeriesOptions, {
 		hover: {
 			lineWidth: 0
 		}
+	},
+	tooltip: {
+		headerFormat: '<span style="font-size: 10px; color:{series.color}">{series.name}</span><br/>',
+		pointFormat: 'x: <b>{point.x}</b><br/>y: <b>{point.y}</b><br/>'
 	}
 });
 defaultPlotOptions.area = merge(defaultSeriesOptions, {
-	// threshold: 0,
+	threshold: 0
 	// lineColor: null, // overrides color, but lets fillColor be unaltered
 	// fillOpacity: 0.75,
 	// fillColor: null
@@ -526,6 +548,8 @@ defaultPlotOptions.column = merge(defaultSeriesOptions, {
 	pointPadding: 0.1,
 	//pointWidth: null,
 	minPointLength: 0,
+	cropThreshold: 50, // when there are more points, they will not animate out of the chart on xAxis.setExtremes
+	pointRange: null, // null means auto, meaning 1 in a categorized axis and least distance between points if not categories
 	states: {
 		hover: {
 			brightness: 0.1,
@@ -540,7 +564,8 @@ defaultPlotOptions.column = merge(defaultSeriesOptions, {
 	dataLabels: {
 		y: null,
 		verticalAlign: null
-	}
+	},
+	threshold: 0
 });
 defaultPlotOptions.bar = merge(defaultPlotOptions.column, {
 	dataLabels: {

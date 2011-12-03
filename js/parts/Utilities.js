@@ -16,8 +16,25 @@ function extend(a, b) {
 }
 
 /**
+ * Take an array and turn into a hash with even number arguments as keys and odd numbers as
+ * values. Allows creating constants for commonly used style properties, attributes etc.
+ * Avoid it in performance critical situations like looping
+ */
+function hash() {
+	var i = 0,
+		args = arguments,
+		length = args.length,
+		obj = {};
+	for (; i < length; i++) {
+		obj[args[i++]] = args[i];
+	}
+	return obj;
+}
+
+/**
  * Shortcut for parseInt
  * @param {Object} s
+ * @param {Number} mag Magnitude
  */
 function pInt(s, mag) {
 	return parseInt(s, mag || 10);
@@ -224,8 +241,14 @@ function numberFormat(number, decimals, decPoint, thousandsSep) {
  * @param {Boolean} capitalize
  */
 dateFormat = function (format, timestamp, capitalize) {
-	function pad(number) {
-		return number.toString().replace(/^([0-9])$/, '0$1');
+	function pad(number, length) {
+		// two digits
+		number = number.toString().replace(/^([0-9])$/, '0$1');
+		// three digits
+		if (length === 3) {
+			number = number.toString().replace(/^([0-9]{2})$/, '0$1');
+		}
+		return number;
 	}
 
 	if (!defined(timestamp) || isNaN(timestamp)) {
@@ -233,7 +256,7 @@ dateFormat = function (format, timestamp, capitalize) {
 	}
 	format = pick(format, '%Y-%m-%d %H:%M:%S');
 
-	var date = new Date(timestamp * timeFactor),
+	var date = new Date(timestamp),
 		key, // used in for constuct below
 		// get the basic time values
 		hours = date[getHours](),
@@ -244,7 +267,7 @@ dateFormat = function (format, timestamp, capitalize) {
 		lang = defaultOptions.lang,
 		langWeekdays = lang.weekdays,
 		/* // uncomment this and the 'W' format key below to enable week numbers
-		weekNumber = function() {
+		weekNumber = function () {
 			var clone = new Date(date.valueOf()),
 				day = clone[getDay]() == 0 ? 7 : clone[getDay](),
 				dayNumber;
@@ -282,8 +305,8 @@ dateFormat = function (format, timestamp, capitalize) {
 			'M': pad(date[getMinutes]()), // Two digits minutes, 00 through 59
 			'p': hours < 12 ? 'AM' : 'PM', // Upper case AM or PM
 			'P': hours < 12 ? 'am' : 'pm', // Lower case AM or PM
-			'S': pad(date.getSeconds()) // Two digits seconds, 00 through  59
-
+			'S': pad(date.getSeconds()), // Two digits seconds, 00 through  59
+			'L': pad(timestamp % 1000, 3) // Milliseconds (naming from Ruby)
 		};
 
 
@@ -297,26 +320,210 @@ dateFormat = function (format, timestamp, capitalize) {
 };
 
 /**
- * Loop up the node tree and add offsetWidth and offsetHeight to get the
- * total page offset for a given element. Used by Opera and iOS on hover and
- * all browsers on point click.
- *
- * @param {Object} el
- *
+ * Take an interval and normalize it to multiples of 1, 2, 2.5 and 5
+ * @param {Number} interval
+ * @param {Array} multiples
+ * @param {Number} magnitude
+ * @param {Object} options
  */
-function getPosition(el) {
-	var p = { left: el.offsetLeft, top: el.offsetTop };
-	el = el.offsetParent;
-	while (el) {
-		p.left += el.offsetLeft;
-		p.top += el.offsetTop;
-		if (el !== doc.body && el !== doc.documentElement) {
-			p.left -= el.scrollLeft;
-			p.top -= el.scrollTop;
+function normalizeTickInterval(interval, multiples, magnitude, options) {
+	var normalized, i;
+
+	// round to a tenfold of 1, 2, 2.5 or 5
+	//magnitude = multiples ? 1 : math.pow(10, mathFloor(math.log(interval) / math.LN10));
+	magnitude = pick(magnitude, 1);
+	normalized = interval / magnitude;
+
+	// multiples for a linear scale
+	if (!multiples) {
+		multiples = [1, 2, 2.5, 5, 10];
+		//multiples = [1, 2, 2.5, 4, 5, 7.5, 10];
+
+		// the allowDecimals option
+		if (options && (options.allowDecimals === false || options.type === 'logarithmic')) {
+			if (magnitude === 1) {
+				multiples = [1, 2, 5, 10];
+			} else if (magnitude <= 0.1) {
+				multiples = [1 / magnitude];
+			}
 		}
-		el = el.offsetParent;
 	}
-	return p;
+
+	// normalize the interval to the nearest multiple
+	for (i = 0; i < multiples.length; i++) {
+		interval = multiples[i];
+		if (normalized <= (multiples[i] + (multiples[i + 1] || multiples[i])) / 2) {
+			break;
+		}
+	}
+
+	// multiply back to the correct magnitude
+	interval *= magnitude;
+
+	return interval;
+}
+
+/**
+ * Set the tick positions to a time unit that makes sense, for example
+ * on the first of each month or on every Monday. Return an array
+ * with the time positions. Used in datetime axes as well as for grouping
+ * data on a datetime axis.
+ *
+ * @param {Number} tickInterval The approximate interval in axis values (ms)
+ * @param {Number} min The minimum in axis values
+ * @param {Number} max The maximum in axis values
+ * @param {Number} startOfWeek
+ * @param {Array} unitsOption
+ */
+function getTimeTicks(tickInterval, min, max, startOfWeek, unitsOption) {
+	var tickPositions = [],
+		i,
+		useUTC = defaultOptions.global.useUTC,
+		units = unitsOption || [[
+			MILLISECOND, // unit name
+			[1, 2, 5, 10, 20, 25, 50, 100, 200, 500] // allowed multiples
+		], [
+			SECOND,
+			[1, 2, 5, 10, 15, 30]
+		], [
+			MINUTE,
+			[1, 2, 5, 10, 15, 30]
+		], [
+			HOUR,
+			[1, 2, 3, 4, 6, 8, 12]
+		], [
+			DAY,
+			[1, 2]
+		], [
+			WEEK,
+			[1, 2]
+		], [
+			MONTH,
+			[1, 2, 3, 4, 6]
+		], [
+			YEAR,
+			null
+		]],
+
+		unit = units[units.length - 1], // default unit is years
+		interval = timeUnits[unit[0]],
+		multiples = unit[1];
+
+	// loop through the units to find the one that best fits the tickInterval
+	for (i = 0; i < units.length; i++) {
+		unit = units[i];
+		interval = timeUnits[unit[0]];
+		multiples = unit[1];
+
+
+		if (units[i + 1]) {
+			// lessThan is in the middle between the highest multiple and the next unit.
+			var lessThan = (interval * multiples[multiples.length - 1] +
+						timeUnits[units[i + 1][0]]) / 2;
+
+			// break and keep the current unit
+			if (tickInterval <= lessThan) {
+				break;
+			}
+		}
+	}
+
+	// prevent 2.5 years intervals, though 25, 250 etc. are allowed
+	if (interval === timeUnits[YEAR] && tickInterval < 5 * interval) {
+		multiples = [1, 2, 5];
+	}
+
+	// get the minimum value by flooring the date
+	var multitude = normalizeTickInterval(tickInterval / interval, multiples),
+		minYear, // used in months and years as a basis for Date.UTC()
+		minDate = new Date(min);
+
+	minDate.setMilliseconds(0);
+
+	if (interval >= timeUnits[SECOND]) { // second
+		minDate.setSeconds(interval >= timeUnits[MINUTE] ? 0 :
+			multitude * mathFloor(minDate.getSeconds() / multitude));
+	}
+
+	if (interval >= timeUnits[MINUTE]) { // minute
+		minDate[setMinutes](interval >= timeUnits[HOUR] ? 0 :
+			multitude * mathFloor(minDate[getMinutes]() / multitude));
+	}
+
+	if (interval >= timeUnits[HOUR]) { // hour
+		minDate[setHours](interval >= timeUnits[DAY] ? 0 :
+			multitude * mathFloor(minDate[getHours]() / multitude));
+	}
+
+	if (interval >= timeUnits[DAY]) { // day
+		minDate[setDate](interval >= timeUnits[MONTH] ? 1 :
+			multitude * mathFloor(minDate[getDate]() / multitude));
+	}
+
+	if (interval >= timeUnits[MONTH]) { // month
+		minDate[setMonth](interval >= timeUnits[YEAR] ? 0 :
+			multitude * mathFloor(minDate[getMonth]() / multitude));
+		minYear = minDate[getFullYear]();
+	}
+
+	if (interval >= timeUnits[YEAR]) { // year
+		minYear -= minYear % multitude;
+		minDate[setFullYear](minYear);
+	}
+
+	// week is a special case that runs outside the hierarchy
+	if (interval === timeUnits[WEEK]) {
+		// get start of current week, independent of multitude
+		minDate[setDate](minDate[getDate]() - minDate[getDay]() +
+			pick(startOfWeek, 1));
+	}
+
+
+	// get tick positions
+	i = 1;
+	minYear = minDate[getFullYear]();
+	var time = minDate.getTime(),
+		minMonth = minDate[getMonth](),
+		minDateDate = minDate[getDate]();
+
+	// iterate and add tick positions at appropriate values
+	while (time < max) {
+		tickPositions.push(time);
+
+		// if the interval is years, use Date.UTC to increase years
+		if (interval === timeUnits[YEAR]) {
+			time = makeTime(minYear + i * multitude, 0);
+
+		// if the interval is months, use Date.UTC to increase months
+		} else if (interval === timeUnits[MONTH]) {
+			time = makeTime(minYear, minMonth + i * multitude);
+
+		// if we're using global time, the interval is not fixed as it jumps
+		// one hour at the DST crossover
+		} else if (!useUTC && (interval === timeUnits[DAY] || interval === timeUnits[WEEK])) {
+			time = makeTime(minYear, minMonth, minDateDate +
+				i * multitude * (interval === timeUnits[DAY] ? 1 : 7));
+
+		// else, the interval is fixed and we use simple addition
+		} else {
+			time += interval * multitude;
+		}
+
+		i++;
+	}
+	// push the last time
+	tickPositions.push(time);
+
+
+	// record information on the chosen unit - for dynamic label formatter
+	tickPositions.info = {
+		unitName: unit[0],
+		unitRange: interval,
+		count: multitude,
+		totalRange: interval * multitude
+	};
+
+	return tickPositions;
 }
 
 /**
@@ -327,7 +534,7 @@ function ChartCounters() {
 	this.symbol = 0;
 }
 
-ChartCounters.prototype = {
+ChartCounters.prototype =  {
 	/**
 	 * Wraps the color counter if it reaches the specified length.
 	 */
@@ -351,36 +558,37 @@ ChartCounters.prototype = {
  * Utility method extracted from Tooltip code that places a tooltip in a chart without spilling over
  * and not covering the point it self.
  */
-function placeBox(boxWidth, boxHeight, outerLeft, outerTop, outerWidth, outerHeight, point) {
+function placeBox(boxWidth, boxHeight, outerLeft, outerTop, outerWidth, outerHeight, point, distance) {
 	// keep the box within the chart area
 	var pointX = point.x,
 		pointY = point.y,
-		x = pointX - boxWidth + outerLeft - 25,
-		y = pointY - boxHeight + outerTop + 10,
+		x = pointX - boxWidth + outerLeft - distance,
+		y = pointY - boxHeight + outerTop + 15, // 15 means the point is 15 pixels up from the bottom of the tooltip
 		alignedRight;
 
 	// it is too far to the left, adjust it
 	if (x < 7) {
-		x = outerLeft + pointX + 15;
+		x = outerLeft + pointX + distance;
 	}
 
-	// Test to see if the tooltip is to far to the right,
+	// Test to see if the tooltip is too far to the right,
 	// if it is, move it back to be inside and then up to not cover the point.
 	if ((x + boxWidth) > (outerLeft + outerWidth)) {
 		x -= (x + boxWidth) - (outerLeft + outerWidth);
-		y -= boxHeight;
+		y = pointY - boxHeight + outerTop - distance;
 		alignedRight = true;
 	}
 
-	if (y < 5) {
-		y = 5; // above
+	// if it is now above the plot area, align it to the top of the plot area
+	if (y < outerTop + 5) {
+		y = outerTop + 5;
 
 		// If the tooltip is still covering the point, move it below instead
 		if (alignedRight && pointY >= y && pointY <= (y + boxHeight)) {
-			y = pointY + boxHeight - 5; // below
+			y = pointY + outerTop + distance; // below
 		}
 	} else if (y + boxHeight > outerTop + outerHeight) {
-		y = outerTop + outerHeight - boxHeight - 5; // below
+		y = outerTop + outerHeight - boxHeight - distance; // below
 	}
 
 	return {x: x, y: y};
@@ -428,3 +636,19 @@ function destroyObjectProperties(obj) {
 		delete obj[n];
 	}
 }
+
+/**
+ * The time unit lookup
+ */
+/*jslint white: true*/
+timeUnits = hash(
+	MILLISECOND, 1,
+	SECOND, 1000,
+	MINUTE, 60000,
+	HOUR, 3600000,
+	DAY, 24 * 3600000,
+	WEEK, 7 * 24 * 3600000,
+	MONTH, 30 * 24 * 3600000,
+	YEAR, 31556952000
+);
+/*jslint white: false*/

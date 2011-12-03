@@ -8,6 +8,10 @@
  * targeted mobile apps and web apps, this code can be removed.               *
  *                                                                            *
  *****************************************************************************/
+
+/**
+ * @constructor
+ */
 var VMLRenderer;
 if (!hasSVG) {
 
@@ -23,7 +27,8 @@ var VMLElement = extendClass(SVGElement, {
 	 * @param {Object} nodeName
 	 */
 	init: function (renderer, nodeName) {
-		var markup =  ['<', nodeName, ' filled="f" stroked="f"'],
+		var wrapper = this,
+			markup =  ['<', nodeName, ' filled="f" stroked="f"'],
 			style = ['position: ', ABSOLUTE, ';'];
 
 		// divs and shapes need size
@@ -41,10 +46,11 @@ var VMLElement = extendClass(SVGElement, {
 			markup = nodeName === DIV || nodeName === 'span' || nodeName === 'img' ?
 				markup.join('')
 				: renderer.prepVML(markup);
-			this.element = createElement(markup);
+			wrapper.element = createElement(markup);
 		}
 
-		this.renderer = renderer;
+		wrapper.renderer = renderer;
+		wrapper.attrSetters = {};
 	},
 
 	/**
@@ -79,30 +85,55 @@ var VMLElement = extendClass(SVGElement, {
 
 		// align text after adding to be able to read offset
 		wrapper.added = true;
-		if (wrapper.alignOnAdd) {
+		if (wrapper.alignOnAdd && !wrapper.deferUpdateTransform) {
 			wrapper.updateTransform();
 		}
 
+		// fire an event for internal hooks
+		fireEvent(wrapper, 'add');
+
 		return wrapper;
+	},
+
+	/**
+	 * In IE8 documentMode 8, we need to recursively set the visibility down in the DOM
+	 * tree for nested groups. Related to #61, #586.
+	 */
+	toggleChildren: function (element, visibility) {
+		var childNodes = element.childNodes,
+			i = childNodes.length;
+			
+		while (i--) {
+			
+			// apply the visibility
+			css(childNodes[i], { visibility: visibility });
+			
+			// we have a nested group, apply it to its children again
+			if (childNodes[i].nodeName === 'DIV') {
+				this.toggleChildren(childNodes[i], visibility);
+			}
+		}
 	},
 
 	/**
 	 * Get or set attributes
 	 */
 	attr: function (hash, val) {
-		var key,
+		var wrapper = this,
+			key,
 			value,
 			i,
-			element = this.element || {},
+			result,
+			element = wrapper.element || {},
 			elemStyle = element.style,
 			nodeName = element.nodeName,
-			renderer = this.renderer,
-			symbolName = this.symbolName,
-			childNodes,
+			renderer = wrapper.renderer,
+			symbolName = wrapper.symbolName,
 			hasSetSymbolSize,
-			shadows = this.shadows,
+			shadows = wrapper.shadows,
 			skipAttr,
-			ret = this;
+			attrSetters = wrapper.attrSetters,
+			ret = wrapper;
 
 		// single key-value pair
 		if (isString(hash) && defined(val)) {
@@ -115,9 +146,9 @@ var VMLElement = extendClass(SVGElement, {
 		if (isString(hash)) {
 			key = hash;
 			if (key === 'strokeWidth' || key === 'stroke-width') {
-				ret = this.strokeweight;
+				ret = wrapper.strokeweight;
 			} else {
-				ret = this[key];
+				ret = wrapper[key];
 			}
 
 		// setter
@@ -126,181 +157,191 @@ var VMLElement = extendClass(SVGElement, {
 				value = hash[key];
 				skipAttr = false;
 
-				// prepare paths
-				// symbols
-				if (symbolName && /^(x|y|r|start|end|width|height|innerR)/.test(key)) {
-					// if one of the symbol size affecting parameters are changed,
-					// check all the others only once for each call to an element's
-					// .attr() method
-					if (!hasSetSymbolSize) {
-						this.symbolAttr(hash);
+				// check for a specific attribute setter
+				result = attrSetters[key] && attrSetters[key](value, key);
 
-						hasSetSymbolSize = true;
+				if (result !== false) {
+
+					if (result !== UNDEFINED) {
+						value = result; // the attribute setter has returned a new value to set
 					}
 
-					skipAttr = true;
 
-				} else if (key === 'd') {
-					value = value || [];
-					this.d = value.join(' '); // used in getter for animation
+					// prepare paths
+					// symbols
+					if (symbolName && /^(x|y|r|start|end|width|height|innerR|anchorX|anchorY)/.test(key)) {
+						// if one of the symbol size affecting parameters are changed,
+						// check all the others only once for each call to an element's
+						// .attr() method
+						if (!hasSetSymbolSize) {
 
-					// convert paths
-					i = value.length;
-					var convertedPath = [];
-					while (i--) {
+							wrapper.symbolAttr(hash);
 
-						// Multiply by 10 to allow subpixel precision.
-						// Substracting half a pixel seems to make the coordinates
-						// align with SVG, but this hasn't been tested thoroughly
-						if (isNumber(value[i])) {
-							convertedPath[i] = mathRound(value[i] * 10) - 5;
-						} else if (value[i] === 'Z') { // close the path
-							convertedPath[i] = 'x';
+							hasSetSymbolSize = true;
+						}
+						skipAttr = true;
+
+					} else if (key === 'd') {
+						value = value || [];
+						wrapper.d = value.join(' '); // used in getter for animation
+
+						// convert paths
+						i = value.length;
+						var convertedPath = [];
+						while (i--) {
+
+							// Multiply by 10 to allow subpixel precision.
+							// Substracting half a pixel seems to make the coordinates
+							// align with SVG, but this hasn't been tested thoroughly
+							if (isNumber(value[i])) {
+								convertedPath[i] = mathRound(value[i] * 10) - 5;
+							} else if (value[i] === 'Z') { // close the path
+								convertedPath[i] = 'x';
+							} else {
+								convertedPath[i] = value[i];
+							}
+
+						}
+						value = convertedPath.join(' ') || 'x';
+						element.path = value;
+
+						// update shadows
+						if (shadows) {
+							i = shadows.length;
+							while (i--) {
+								shadows[i].path = value;
+							}
+						}
+						skipAttr = true;
+
+					// directly mapped to css
+					} else if (key === 'zIndex' || key === 'visibility') {
+
+						// workaround for #61 and #586
+						if (docMode8 && key === 'visibility' && nodeName === 'DIV') {
+							element.gVis = value;
+							wrapper.toggleChildren(element, value);
+							if (value === VISIBLE) { // #74
+								value = null;
+							}
+						}
+
+						if (value) {
+							elemStyle[key] = value;
+						}
+
+
+
+						skipAttr = true;
+
+					// width and height
+					} else if (key === 'width' || key === 'height') {
+						
+						value = mathMax(0, value); // don't set width or height below zero (#311)
+						
+						this[key] = value; // used in getter
+
+						// clipping rectangle special
+						if (wrapper.updateClipping) {
+							wrapper[key] = value;
+							wrapper.updateClipping();
 						} else {
-							convertedPath[i] = value[i];
+							// normal
+							elemStyle[key] = value;
 						}
 
-					}
-					value = convertedPath.join(' ') || 'x';
-					element.path = value;
+						skipAttr = true;
 
-					// update shadows
-					if (shadows) {
-						i = shadows.length;
-						while (i--) {
-							shadows[i].path = value;
+					// x and y
+					} else if (/^(x|y)$/.test(key)) {
+
+						wrapper[key] = value; // used in getter
+
+						if (element.tagName === 'SPAN') {
+							wrapper.updateTransform();
+
+						} else {
+							elemStyle[{ x: 'left', y: 'top' }[key]] = value;
 						}
-					}
-					skipAttr = true;
 
-				// directly mapped to css
-				} else if (key === 'zIndex' || key === 'visibility') {
+					// class name
+					} else if (key === 'class') {
+						// IE8 Standards mode has problems retrieving the className
+						element.className = value;
 
-					// issue 61 workaround
-					if (docMode8 && key === 'visibility' && nodeName === 'DIV') {
-						element.gVis = value;
-						childNodes = element.childNodes;
-						i = childNodes.length;
-						while (i--) {
-							css(childNodes[i], { visibility: value });
-						}
-						if (value === VISIBLE) { // issue 74
-							value = null;
-						}
-					}
-
-					if (value) {
-						elemStyle[key] = value;
-					}
-
-
-
-					skipAttr = true;
-
-				// width and height
-				} else if (/^(width|height)$/.test(key)) {
-
-					this[key] = value; // used in getter
-
-					// clipping rectangle special
-					if (this.updateClipping) {
-						this[key] = value;
-						this.updateClipping();
-
-					} else {
-						// normal
-						elemStyle[key] = value;
-					}
-
-					skipAttr = true;
-
-				// x and y
-				} else if (/^(x|y)$/.test(key)) {
-
-					this[key] = value; // used in getter
-
-					if (element.tagName === 'SPAN') {
-						this.updateTransform();
-
-					} else {
-						elemStyle[{ x: 'left', y: 'top' }[key]] = value;
-					}
-
-				// class name
-				} else if (key === 'class') {
-					// IE8 Standards mode has problems retrieving the className
-					element.className = value;
-
-				// stroke
-				} else if (key === 'stroke') {
-
-					value = renderer.color(value, element, key);
-
-					key = 'strokecolor';
-
-				// stroke width
-				} else if (key === 'stroke-width' || key === 'strokeWidth') {
-					element.stroked = value ? true : false;
-					key = 'strokeweight';
-					this[key] = value; // used in getter, issue #113
-					if (isNumber(value)) {
-						value += PX;
-					}
-
-				// dashStyle
-				} else if (key === 'dashstyle') {
-					var strokeElem = element.getElementsByTagName('stroke')[0] ||
-						createElement(renderer.prepVML(['<stroke/>']), null, null, element);
-					strokeElem[key] = value || 'solid';
-					this.dashstyle = value; /* because changing stroke-width will change the dash length
-						and cause an epileptic effect */
-					skipAttr = true;
-
-				// fill
-				} else if (key === 'fill') {
-
-					if (nodeName === 'SPAN') { // text color
-						elemStyle.color = value;
-					} else {
-						element.filled = value !== NONE ? true : false;
+					// stroke
+					} else if (key === 'stroke') {
 
 						value = renderer.color(value, element, key);
 
-						key = 'fillcolor';
+						key = 'strokecolor';
+
+					// stroke width
+					} else if (key === 'stroke-width' || key === 'strokeWidth') {
+						element.stroked = value ? true : false;
+						key = 'strokeweight';
+						wrapper[key] = value; // used in getter, issue #113
+						if (isNumber(value)) {
+							value += PX;
+						}
+
+					// dashStyle
+					} else if (key === 'dashstyle') {
+						var strokeElem = element.getElementsByTagName('stroke')[0] ||
+							createElement(renderer.prepVML(['<stroke/>']), null, null, element);
+						strokeElem[key] = value || 'solid';
+						wrapper.dashstyle = value; /* because changing stroke-width will change the dash length
+							and cause an epileptic effect */
+						skipAttr = true;
+
+					// fill
+					} else if (key === 'fill') {
+
+						if (nodeName === 'SPAN') { // text color
+							elemStyle.color = value;
+						} else {
+							element.filled = value !== NONE ? true : false;
+
+							value = renderer.color(value, element, key);
+
+							key = 'fillcolor';
+						}
+
+					// translation for animation
+					} else if (key === 'translateX' || key === 'translateY' || key === 'rotation' || key === 'align') {
+						if (key === 'align') {
+							key = 'textAlign';
+						}
+						wrapper[key] = value;
+						wrapper.updateTransform();
+
+						skipAttr = true;
+
+					// text for rotated and non-rotated elements
+					} else if (key === 'text') {
+						this.bBox = null;
+						element.innerHTML = value;
+						skipAttr = true;
 					}
 
-				// translation for animation
-				} else if (key === 'translateX' || key === 'translateY' || key === 'rotation' || key === 'align') {
-					if (key === 'align') {
-						key = 'textAlign';
+					// let the shadow follow the main element
+					if (shadows && key === 'visibility') {
+						i = shadows.length;
+						while (i--) {
+							shadows[i].style[key] = value;
+						}
 					}
-					this[key] = value;
-					this.updateTransform();
-
-					skipAttr = true;
-				} else if (key === 'text') { // text for rotated and non-rotated elements
-					this.bBox = null;
-					element.innerHTML = value;
-					skipAttr = true;
-				}
 
 
-				// let the shadow follow the main element
-				if (shadows && key === 'visibility') {
-					i = shadows.length;
-					while (i--) {
-						shadows[i].style[key] = value;
+
+					if (!skipAttr) {
+						if (docMode8) { // IE8 setAttribute bug
+							element[key] = value;
+						} else {
+							attr(element, key, value);
+						}
 					}
-				}
 
-
-
-				if (!skipAttr) {
-					if (docMode8) { // IE8 setAttribute bug
-						element[key] = value;
-					} else {
-						attr(element, key, value);
-					}
 				}
 			}
 		}
@@ -332,12 +373,6 @@ var VMLElement = extendClass(SVGElement, {
 			element = wrapper.element,
 			textWidth = styles && element.tagName === 'SPAN' && styles.width;
 
-		/*if (textWidth) {
-			extend(styles, {
-				display: 'block',
-				whiteSpace: 'normal'
-			});
-		}*/
 		if (textWidth) {
 			delete styles.width;
 			wrapper.textWidth = textWidth;
@@ -348,6 +383,19 @@ var VMLElement = extendClass(SVGElement, {
 		css(wrapper.element, styles);
 
 		return wrapper;
+	},
+
+	/**
+	 * Removes a child either by removeChild or move to garbageBin.
+	 * Issue 490; in VML removeChild results in Orphaned nodes according to sIEve, discardElement does not.
+	 */
+	safeRemoveChild: function (element) {
+		// discardElement will detach the node from its parent before attaching it
+		// to the garbage bin. Therefore it is important that the node is attached and have parent.
+		var parentNode = element.parentNode;
+		if (parentNode) {
+			discardElement(element);
+		}
 	},
 
 	/**
@@ -380,16 +428,19 @@ var VMLElement = extendClass(SVGElement, {
 
 	/**
 	 * VML override for calculating the bounding box based on offsets
+	 * @param {Boolean} refresh Whether to force a fresh value from the DOM or to
+	 * use the cached value
 	 *
 	 * @return {Object} A hash containing values for x, y, width and height
 	 */
 
-	getBBox: function () {
+	getBBox: function (refresh) {
 		var wrapper = this,
 			element = wrapper.element,
 			bBox = wrapper.bBox;
 
-		if (!bBox) {
+		// faking getBBox in exported SVG in legacy IE
+		if (!bBox || refresh) {
 			// faking getBBox in exported SVG in legacy IE
 			if (element.nodeName === 'text') {
 				element.style.position = ABSOLUTE;
@@ -402,8 +453,8 @@ var VMLElement = extendClass(SVGElement, {
 				height: element.offsetHeight
 			};
 		}
-		return bBox;
 
+		return bBox;
 	},
 
 	/**
@@ -441,14 +492,23 @@ var VMLElement = extendClass(SVGElement, {
 			y = wrapper.y || 0,
 			align = wrapper.textAlign || 'left',
 			alignCorrection = { left: 0, center: 0.5, right: 1 }[align],
-			nonLeft = align && align !== 'left';
+			nonLeft = align && align !== 'left',
+			shadows = wrapper.shadows;
 
 		// apply translate
 		if (translateX || translateY) {
-			wrapper.css({
+			css(elem, {
 				marginLeft: translateX,
 				marginTop: translateY
 			});
+			if (shadows) { // used in labels/tooltip
+				each(shadows, function (shadow) {
+					css(shadow, {
+						marginLeft: translateX + 1,
+						marginTop: translateY + 1
+					});
+				});
+			}
 		}
 
 		// apply inversion
@@ -488,8 +548,8 @@ var VMLElement = extendClass(SVGElement, {
 					});
 				}
 
-				width = elem.offsetWidth;
-				height = elem.offsetHeight;
+				width = pick(wrapper.elemWidth, elem.offsetWidth);
+				height = pick(wrapper.elemHeight, elem.offsetHeight);
 
 				// update textWidth
 				if (width > textWidth) {
@@ -710,11 +770,15 @@ VMLRenderer.prototype = merge(SVGRenderer.prototype, { // inherit SVGRenderer
 			regexRgba = /^rgba/,
 			markup;
 
-		if (color && color.linearGradient) {
+		if (color && color[LINEAR_GRADIENT]) {
 
 			var stopColor,
 				stopOpacity,
-				linearGradient = color.linearGradient,
+				linearGradient = color[LINEAR_GRADIENT],
+				x1 = linearGradient.x1 || linearGradient[0] || 0,
+				y1 = linearGradient.y1 || linearGradient[1] || 0,
+				x2 = linearGradient.x2 || linearGradient[2] || 0,
+				y2 = linearGradient.y2 || linearGradient[3] || 0,
 				angle,
 				color1,
 				opacity1,
@@ -740,21 +804,19 @@ VMLRenderer.prototype = merge(SVGRenderer.prototype, { // inherit SVGRenderer
 				}
 			});
 
-
-
 			// calculate the angle based on the linear vector
 			angle = 90  - math.atan(
-				(linearGradient[3] - linearGradient[1]) / // y vector
-				(linearGradient[2] - linearGradient[0]) // x vector
+				(y2 - y1) / // y vector
+				(x2 - x1) // x vector
 				) * 180 / mathPI;
+
 
 			// when colors attribute is used, the meanings of opacity and o:opacity2
 			// are reversed.
 			markup = ['<', prop, ' colors="0% ', color1, ',100% ', color2, '" angle="', angle,
 				'" opacity="', opacity2, '" o:opacity2="', opacity1,
-				'" type="gradient" focus="100%" />'];
+				'" type="gradient" focus="100%" method="any" />'];
 			createElement(this.prepVML(markup), null, null, elem);
-
 
 
 		// if the color is an rgba color, split it and add a fill node
@@ -905,7 +967,6 @@ VMLRenderer.prototype = merge(SVGRenderer.prototype, { // inherit SVGRenderer
 			y = x.y;
 			width = x.width;
 			height = x.height;
-			r = x.r;
 			strokeWidth = x.strokeWidth;
 			x = x.x;
 		}
@@ -937,9 +998,10 @@ VMLRenderer.prototype = merge(SVGRenderer.prototype, { // inherit SVGRenderer
 	 */
 	symbols: {
 		// VML specific arc function
-		arc: function (x, y, radius, options) {
+		arc: function (x, y, w, h, options) {
 			var start = options.start,
 				end = options.end,
+				radius = options.r || w || h,
 				cosStart = mathCos(start),
 				sinStart = mathSin(start),
 				cosEnd = mathCos(end),
@@ -987,17 +1049,18 @@ VMLRenderer.prototype = merge(SVGRenderer.prototype, { // inherit SVGRenderer
 
 		},
 		// Add circle symbol path. This performs significantly faster than v:oval.
-		circle: function (x, y, r) {
+		circle: function (x, y, w, h) {
+
 			return [
 				'wa', // clockwisearcto
-				x - r, // left
-				y - r, // top
-				x + r, // right
-				y + r, // bottom
-				x + r, // start x
-				y,     // start y
-				x + r, // end x
-				y,     // end y
+				x, // left
+				y, // top
+				x + w, // right
+				y + h, // bottom
+				x + w, // start x
+				y + h / 2,     // start y
+				x + w, // end x
+				y + h / 2,     // end y
 				//'x', // finish path
 				'e' // close
 			];
@@ -1012,16 +1075,17 @@ VMLRenderer.prototype = merge(SVGRenderer.prototype, { // inherit SVGRenderer
 		 * @param {Object} options Width and height
 		 */
 
-		rect: function (left, top, r, options) {
+		rect: function (left, top, width, height, options) {
+			/*for (var n in r) {
+				logTime && console .log(n)
+				}*/
+
 			if (!defined(options)) {
 				return [];
 			}
-			var width = options.width,
-				height = options.height,
-				right = left + width,
-				bottom = top + height;
-
-			r = mathMin(r, width, height);
+			var right = left + width,
+				bottom = top + height,
+				r = mathMin(options.r || 0, width, height);
 
 			return [
 				M,
@@ -1068,9 +1132,10 @@ VMLRenderer.prototype = merge(SVGRenderer.prototype, { // inherit SVGRenderer
 	}
 });
 
-// general renderer
-Renderer = VMLRenderer;
+	// general renderer
+	Renderer = VMLRenderer;
 }
+
 /* ****************************************************************************
  *                                                                            *
  * END OF INTERNET EXPLORER <= 8 SPECIFIC CODE                                *

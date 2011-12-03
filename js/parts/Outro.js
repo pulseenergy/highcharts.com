@@ -1,6 +1,6 @@
 
 // global variables
-win.Highcharts = {
+extend(Highcharts, {
 	Chart: Chart,
 	dateFormat: dateFormat,
 	pathAnim: pathAnim,
@@ -16,6 +16,7 @@ win.Highcharts = {
 
 	// Expose utility funcitons for modules
 	addEvent: addEvent,
+	removeEvent: removeEvent,
 	createElement: createElement,
 	discardElement: discardElement,
 	css: css,
@@ -24,8 +25,9 @@ win.Highcharts = {
 	map: map,
 	merge: merge,
 	pick: pick,
+	splat: splat,
 	extendClass: extendClass,
 	product: '@product.name@',
 	version: '@product.version@'
-};
+});
 }());

@@ -9,12 +9,12 @@ Point.prototype = {
 	 * @param {Object} series The series object containing this point
 	 * @param {Object} options The data in either number, array or object format
 	 */
-	init: function (series, options) {
+	init: function (series, options, x) {
 		var point = this,
 			counters = series.chart.counters,
 			defaultColors;
 		point.series = series;
-		point.applyOptions(options);
+		point.applyOptions(options, x);
 		point.pointAttr = {};
 
 		if (series.options.colorByPoint) {
@@ -37,24 +37,25 @@ Point.prototype = {
 	 *
 	 * @param {Object} options
 	 */
-	applyOptions: function (options) {
+	applyOptions: function (options, x) {
 		var point = this,
-			series = point.series;
+			series = point.series,
+			optionsType = typeof options;
 
 		point.config = options;
 
 		// onedimensional array input
-		if (isNumber(options) || options === null) {
+		if (optionsType === 'number' || options === null) {
 			point.y = options;
-		} else if (isObject(options) && !isNumber(options.length)) { // object input
+		} else if (typeof options[0] === 'number') { // two-dimentional array
+			point.x = options[0];
+			point.y = options[1];
+		} else if (optionsType === 'object' && typeof options.length !== 'number') { // object input
 			// copy options directly to point
 			extend(point, options);
 			point.options = options;
-		} else if (isString(options[0])) { // categorized data with name in first position
+		} else if (typeof options[0] === 'string') { // categorized data with name in first position
 			point.name = options[0];
-			point.y = options[1];
-		} else if (isNumber(options[0])) { // two-dimentional array
-			point.x = options[0];
 			point.y = options[1];
 		}
 
@@ -62,8 +63,10 @@ Point.prototype = {
 		 * If no x is set by now, get auto incremented value. All points must have an
 		 * x value, however the y value can be null to create a gap in the series
 		 */
+
+		// todo: skip this? It is only used in applyOptions, in translate it should not be used
 		if (point.x === UNDEFINED) {
-			point.x = series.autoIncrement();
+			point.x = x === UNDEFINED ? series.autoIncrement() : x;
 		}
 
 	},
@@ -86,16 +89,13 @@ Point.prototype = {
 		if (point === series.chart.hoverPoint) {
 			point.onMouseOut();
 		}
-
+		series.chart.hoverPoints = null;
 
 		// remove all events
-		removeEvent(point);
-
-		each(['graphic', 'tracker', 'group', 'dataLabel', 'connector', 'shadowGroup'], function (prop) {
-			if (point[prop]) {
-				point[prop].destroy();
-			}
-		});
+		if (point.graphic || point.dataLabel) { // removeEvent and destroyElements are performance expensive
+			removeEvent(point);
+			point.destroyElements();
+		}
 
 		if (point.legendItem) { // pies have legend items
 			point.series.chart.legend.destroyItem(point);
@@ -109,6 +109,22 @@ Point.prototype = {
 	},
 
 	/**
+	 * Destroy SVG elements associated with the point
+	 */
+	destroyElements: function () {
+		var point = this,
+			props = ['graphic', 'tracker', 'dataLabel', 'group', 'connector', 'shadowGroup'],
+			prop,
+			i = 6;
+		while (i--) {
+			prop = props[i];
+			if (point[prop]) {
+				point[prop] = point[prop].destroy();
+			}
+		}
+	},
+
+	/**
 	 * Return the configuration hash needed for the data label and tooltip formatters
 	 */
 	getLabelConfig: function () {
@@ -116,6 +132,7 @@ Point.prototype = {
 		return {
 			x: point.category,
 			y: point.y,
+			key: point.name || point.category,
 			series: point.series,
 			point: point,
 			percentage: point.percentage,
@@ -156,7 +173,8 @@ Point.prototype = {
 
 	onMouseOver: function () {
 		var point = this,
-			chart = point.series.chart,
+			series = point.series,
+			chart = series.chart,
 			tooltip = chart.tooltip,
 			hoverPoint = chart.hoverPoint;
 
@@ -169,7 +187,7 @@ Point.prototype = {
 		point.firePointEvent('mouseOver');
 
 		// update the tooltip
-		if (tooltip && !tooltip.shared) {
+		if (tooltip && (!tooltip.shared || series.noSharedTooltip)) {
 			tooltip.refresh(point);
 		}
 
@@ -189,18 +207,42 @@ Point.prototype = {
 	/**
 	 * Extendable method for formatting each point's tooltip line
 	 *
-	 * @param {Boolean} useHeader Whether a common header is used for multiple series in the tooltip
-	 *
 	 * @return {String} A string to be concatenated in to the common tooltip text
 	 */
-	tooltipFormatter: function (useHeader) {
+	tooltipFormatter: function (pointFormat) {
 		var point = this,
-			series = point.series;
+			series = point.series,
+			seriesTooltipOptions = series.tooltipOptions,
+			split = String(point.y).split('.'),
+			originalDecimals = split[1] ? split[1].length : 0,
+			match = pointFormat.match(/\{(series|point)\.[a-zA-Z]+\}/g),
+			splitter = /[\.}]/,
+			obj,
+			key,
+			replacement,
+			i;
 
-		return ['<span style="color:' + series.color + '">', (point.name || series.name), '</span>: ',
-			(!useHeader ? ('<b>x = ' + (point.name || point.x) + ',</b> ') : ''),
-			'<b>', (!useHeader ? 'y = ' : ''), point.y, '</b>'].join('');
-
+		// loop over the variables defined on the form {series.name}, {point.y} etc
+		for (i in match) {
+			key = match[i];
+			
+			if (isString(key) && key !== pointFormat) { // IE matches more than just the variables 
+				obj = key.indexOf('point') === 1 ? point : series;
+				
+				if (key === '{point.y}') { // add some preformatting 
+					replacement = (seriesTooltipOptions.yPrefix || '') + 
+						numberFormat(point.y, pick(seriesTooltipOptions.yDecimals, originalDecimals)) +
+						(seriesTooltipOptions.ySuffix || '');
+				
+				} else { // automatic replacement
+					replacement = obj[match[i].split(splitter)[1]];
+				}
+				
+				pointFormat = pointFormat.replace(match[i], replacement);
+			}
+		}
+		
+		return pointFormat;
 	},
 
 	/**
@@ -216,6 +258,9 @@ Point.prototype = {
 		var point = this,
 			series = point.series,
 			graphic = point.graphic,
+			i,
+			data = series.data,
+			dataLength = data.length,
 			chart = series.chart;
 
 		redraw = pick(redraw, true);
@@ -233,8 +278,19 @@ Point.prototype = {
 				}
 			}
 
+			// record changes in the parallel arrays
+			for (i = 0; i < dataLength; i++) {
+				if (data[i] === point) {
+					series.xData[i] = point.x;
+					series.yData[i] = point.y;
+					series.options.data[i] = options;
+					break;
+				}
+			}
+
 			// redraw
 			series.isDirty = true;
+			series.isDirtyData = true;
 			if (redraw) {
 				chart.redraw(animation);
 			}
@@ -251,7 +307,9 @@ Point.prototype = {
 		var point = this,
 			series = point.series,
 			chart = series.chart,
-			data = series.data;
+			i,
+			data = series.data,
+			dataLength = data.length;
 
 		setAnimation(animation, chart);
 		redraw = pick(redraw, true);
@@ -259,13 +317,26 @@ Point.prototype = {
 		// fire the event with a default handler of removing the point
 		point.firePointEvent('remove', null, function () {
 
-			erase(data, point);
+			//erase(series.data, point);
+
+			for (i = 0; i < dataLength; i++) {
+				if (data[i] === point) {
+
+					// splice all the parallel arrays
+					data.splice(i, 1);
+					series.options.data.splice(i, 1);
+					series.xData.splice(i, 1);
+					series.yData.splice(i, 1);
+					break;
+				}
+			}
 
 			point.destroy();
 
 
 			// redraw
 			series.isDirty = true;
+			series.isDirtyData = true;
 			if (redraw) {
 				chart.redraw();
 			}
@@ -287,8 +358,7 @@ Point.prototype = {
 			seriesOptions = series.options;
 
 		// load event handlers on demand to save time on mouseover/out
-		if (seriesOptions.point.events[eventType] ||
-			(point.options && point.options.events && point.options.events[eventType])) {
+		if (seriesOptions.point.events[eventType] || (point.options && point.options.events && point.options.events[eventType])) {
 			this.importEvents();
 		}
 
@@ -329,6 +399,8 @@ Point.prototype = {
 	 */
 	setState: function (state) {
 		var point = this,
+			plotX = point.plotX,
+			plotY = point.plotY,
 			series = point.series,
 			stateOptions = series.options.states,
 			markerOptions = defaultPlotOptions[series.type].marker && series.options.marker,
@@ -337,6 +409,7 @@ Point.prototype = {
 			stateDisabled = markerStateOptions && markerStateOptions.enabled === false,
 			stateMarkerGraphic = series.stateMarkerGraphic,
 			chart = series.chart,
+			radius,
 			pointAttr = point.pointAttr;
 
 		state = state || NORMAL_STATE; // empty string
@@ -357,24 +430,37 @@ Point.prototype = {
 
 		// apply hover styles to the existing point
 		if (point.graphic) {
-			point.graphic.attr(pointAttr[state]);
+			radius = pointAttr[state].r;
+			point.graphic.attr(merge(
+				pointAttr[state],
+				radius ? extend({ // new symbol attributes
+					x: plotX - radius,
+					y: plotY - radius
+				}, point.graphic.symbolName ? { // don't apply to image symbols #507
+					width: 2 * radius,
+					height: 2 * radius
+				} : {}) : {}
+			));
 		} else {
 			// if a graphic is not applied to each point in the normal state, create a shared
 			// graphic for the hover state
 			if (state) {
 				if (!stateMarkerGraphic) {
-					series.stateMarkerGraphic = stateMarkerGraphic = chart.renderer.circle(
-						0,
-						0,
-						pointAttr[state].r
+					radius = markerOptions.radius;
+					series.stateMarkerGraphic = stateMarkerGraphic = chart.renderer.symbol(
+						series.symbol,
+						-radius,
+						-radius,
+						2 * radius,
+						2 * radius
 					)
 					.attr(pointAttr[state])
 					.add(series.group);
 				}
 
 				stateMarkerGraphic.translate(
-					point.plotX,
-					point.plotY
+					plotX,
+					plotY
 				);
 			}
 
@@ -388,7 +474,21 @@ Point.prototype = {
 };
 
 /**
- * The base function which all other series types inherit from
+ * @classDescription The base function which all other series types inherit from. The data in the series is stored
+ * in various arrays.
+ *
+ * - First, series.options.data contains all the original config options for
+ * each point whether added by options or methods like series.addPoint.
+ * - Next, series.data contains those values converted to points, but in case the series data length
+ * exceeds the cropThreshold, or if the data is grouped, series.data doesn't contain all the points. It
+ * only contains the points that have been created on demand.
+ * - Then there's series.points that contains all currently visible point objects. In case of cropping,
+ * the cropped-away points are not part of this array. The series.points array starts at series.cropStart
+ * compared to series.data and series.options.data. If however the series data is grouped, these can't
+ * be correlated one to one.
+ * - series.xData and series.processedXData contain clean x values, equivalent to series.data and series.points.
+ * - series.yData and series.processedYData contain clean x values, equivalent to series.data and series.points.
+ *
  * @param {Object} chart
  * @param {Object} options
  */
@@ -413,19 +513,21 @@ Series.prototype = {
 			index = chart.series.length;
 
 		series.chart = chart;
-		options = series.setOptions(options); // merge with plotOptions
+		series.options = options = series.setOptions(options); // merge with plotOptions
+		
+		// bind the axes
+		series.bindAxes();
 
 		// set some variables
 		extend(series, {
 			index: index,
-			options: options,
 			name: options.name || 'Series ' + (index + 1),
 			state: NORMAL_STATE,
 			pointAttr: {},
 			visible: options.visible !== false, // true by default
 			selected: options.selected === true // false by default
 		});
-
+		
 		// register event listeners
 		events = options.events;
 		for (eventType in events) {
@@ -442,10 +544,49 @@ Series.prototype = {
 		series.getColor();
 		series.getSymbol();
 
-
 		// set the data
 		series.setData(options.data, false);
 
+	},
+	
+	
+	
+	/**
+	 * Set the xAxis and yAxis properties of cartesian series, and register the series
+	 * in the axis.series array
+	 */
+	bindAxes: function () {
+		var series = this,
+			seriesOptions = series.options,
+			chart = series.chart,
+			axisOptions;
+			
+		if (series.isCartesian) {
+			
+			each(['xAxis', 'yAxis'], function (AXIS) { // repeat for xAxis and yAxis
+				
+				each(chart[AXIS], function (axis) { // loop through the chart's axis objects
+					
+					axisOptions = axis.options;
+					
+					// apply if the series xAxis or yAxis option mathches the number of the 
+					// axis, or if undefined, use the first axis
+					if ((seriesOptions[AXIS] === axisOptions.index) ||
+							(seriesOptions[AXIS] === UNDEFINED && axisOptions.index === 0)) {
+						
+						// register this series in the axis.series lookup
+						axis.series.push(series);
+						
+						// set this series.xAxis or series.yAxis reference
+						series[AXIS] = axis;
+						
+						// mark dirty for redraw
+						axis.isDirty = true;
+					}
+				});
+				
+			});
+		}
 	},
 
 
@@ -467,95 +608,65 @@ Series.prototype = {
 	},
 
 	/**
-	 * Sort the data and remove duplicates
-	 */
-	cleanData: function () {
-		var series = this,
-			chart = series.chart,
-			data = series.data,
-			closestPoints,
-			smallestInterval,
-			chartSmallestInterval = chart.smallestInterval,
-			interval,
-			i;
-
-		// sort the data points
-		stableSort(data, function (a, b) {
-			return (a.x - b.x);
-		});
-
-		// remove points with equal x values
-		// record the closest distance for calculation of column widths
-		/*for (i = data.length - 1; i >= 0; i--) {
-			if (data[i - 1]) {
-				if (data[i - 1].x == data[i].x)	{
-					data[i - 1].destroy();
-					data.splice(i - 1, 1); // remove the duplicate
-				}
-			}
-		}*/
-
-		// connect nulls
-		if (series.options.connectNulls) {
-			for (i = data.length - 1; i >= 0; i--) {
-				if (data[i].y === null && data[i - 1] && data[i + 1]) {
-					data.splice(i, 1);
-				}
-			}
-		}
-
-		// find the closes pair of points
-		for (i = data.length - 1; i >= 0; i--) {
-			if (data[i - 1]) {
-				interval = data[i].x - data[i - 1].x;
-				if (interval > 0 && (smallestInterval === UNDEFINED || interval < smallestInterval)) {
-					smallestInterval = interval;
-					closestPoints = i;
-				}
-			}
-		}
-
-		if (chartSmallestInterval === UNDEFINED || smallestInterval < chartSmallestInterval) {
-			chart.smallestInterval = smallestInterval;
-		}
-		series.closestPoints = closestPoints;
-	},
-
-	/**
-	 * Divide the series data into segments divided by null values. Also sort
-	 * the data points and delete duplicate values.
+	 * Divide the series data into segments divided by null values.
 	 */
 	getSegments: function () {
-		var lastNull = -1,
+		var series = this,
+			lastNull = -1,
 			segments = [],
-			data = this.data;
+			i,
+			points = series.points;
 
-		// create the segments
-		each(data, function (point, i) {
-			if (point.y === null) {
-				if (i > lastNull + 1) {
-					segments.push(data.slice(lastNull + 1, i));
+		// if connect nulls, just remove null points
+		if (series.options.connectNulls) {
+			i = points.length - 1;
+			while (i--) {
+				if (points[i].y === null) {
+					points.splice(i, 1);
 				}
-				lastNull = i;
-			} else if (i === data.length - 1) { // last value
-				segments.push(data.slice(lastNull + 1, i + 1));
 			}
-		});
-		this.segments = segments;
-
-
+			segments = [points];
+			
+		// else, split on null points
+		} else {			
+			each(points, function (point, i) {
+				if (point.y === null) {
+					if (i > lastNull + 1) {
+						segments.push(points.slice(lastNull + 1, i));
+					}
+					lastNull = i;
+				} else if (i === points.length - 1) { // last value
+					segments.push(points.slice(lastNull + 1, i + 1));
+				}
+			});
+		}
+		
+		// register it
+		series.segments = segments;
 	},
 	/**
 	 * Set the series options by merging from the options tree
 	 * @param {Object} itemOptions
 	 */
 	setOptions: function (itemOptions) {
-		var plotOptions = this.chart.options.plotOptions,
-			options = merge(
-				plotOptions[this.type],
-				plotOptions.series,
-				itemOptions
-			);
+		var series = this,
+			chart = series.chart,
+			chartOptions = chart.options,
+			plotOptions = chartOptions.plotOptions,
+			data = itemOptions.data,
+			options;
+
+		itemOptions.data = null; // remove from merge to prevent looping over the data set
+
+		options = merge(
+			plotOptions[this.type],
+			plotOptions.series,
+			itemOptions
+		);
+		options.data = data;
+		
+		// the tooltip options are merged between global and series specific options
+		series.tooltipOptions = merge(chartOptions.tooltip, options.tooltip);
 
 		return options;
 
@@ -594,29 +705,51 @@ Series.prototype = {
 			graph = series.graph,
 			area = series.area,
 			chart = series.chart,
-			point = (new series.pointClass()).init(series, options);
+			xData = series.xData,
+			yData = series.yData,
+			currentShift = (graph && graph.shift) || 0,
+			dataOptions = series.options.data,
+			point;
+			//point = (new series.pointClass()).init(series, options);
 
 		setAnimation(animation, chart);
 
 		if (graph && shift) { // make graph animate sideways
-			graph.shift = shift;
+			graph.shift = currentShift + 1;
 		}
 		if (area) {
-			area.shift = shift;
+			area.shift = currentShift + 1;
 			area.isArea = true;
 		}
-
 		redraw = pick(redraw, true);
 
-		data.push(point);
+
+		// Get options and push the point to xData, yData and series.options. In series.generatePoints
+		// the Point instance will be created on demand and pushed to the series.data array.
+		point = { series: series };
+		series.pointClass.prototype.applyOptions.apply(point, [options]);
+		xData.push(point.x);
+		yData.push(point.y);
+		dataOptions.push(options);
+
+
+		// Shift the first point off the parallel arrays
+		// todo: consider series.removePoint(i) method
 		if (shift) {
-			data[0].remove(false);
+			if (data[0]) {
+				data[0].remove(false);
+			} else {
+				data.shift();
+				xData.shift();
+				yData.shift();
+				dataOptions.shift();
+			}
 		}
 		series.getAttribs();
 
-
 		// redraw
 		series.isDirty = true;
+		series.isDirtyData = true;
 		if (redraw) {
 			chart.redraw();
 		}
@@ -629,38 +762,92 @@ Series.prototype = {
 	 */
 	setData: function (data, redraw) {
 		var series = this,
-			oldData = series.data,
+			oldData = series.points,
+			options = series.options,
 			initialColor = series.initialColor,
 			chart = series.chart,
-			i = (oldData && oldData.length) || 0;
+			firstPoint = null,
+			i;
 
-		series.xIncrement = null; // reset for new data
+		// reset properties
+		series.xIncrement = null;
+		series.pointRange = (series.xAxis && series.xAxis.categories && 1) || options.pointRange;
+		
 		if (defined(initialColor)) { // reset colors for pie
 			chart.counters.color = initialColor;
 		}
 
-		data = map(splat(data || []), function (pointOptions) {
-			return (new series.pointClass()).init(series, pointOptions);
-		});
+		// parallel arrays
+		var xData = [],
+			yData = [],
+			dataLength = data.length,
+			turboThreshold = options.turboThreshold || 1000,
+			pt,
+			ohlc = series.valueCount === 4;
 
-		// destroy old points
-		while (i--) {
-			oldData[i].destroy();
+		// In turbo mode, only one- or twodimensional arrays of numbers are allowed. The
+		// first value is tested, and we assume that all the rest are defined the same
+		// way. Although the 'for' loops are similar, they are repeated inside each
+		// if-else conditional for max performance.
+		if (dataLength > turboThreshold) {
+			
+			// find the first non-null point
+			i = 0;
+			while (firstPoint === null && i < dataLength) {
+				firstPoint = data[i];
+				i++;
+			}
+		
+		
+			if (isNumber(firstPoint)) { // assume all points are numbers
+				var x = pick(options.pointStart, 0),
+					pointInterval = pick(options.pointInterval, 1);
+
+				for (i = 0; i < dataLength; i++) {
+					xData[i] = x;
+					yData[i] = data[i];
+					x += pointInterval;
+				}
+				series.xIncrement = x;
+			} else if (isArray(firstPoint)) { // assume all points are arrays
+				if (ohlc) { // [x, o, h, l, c]
+					for (i = 0; i < dataLength; i++) {
+						pt = data[i];
+						xData[i] = pt[0];
+						yData[i] = pt.slice(1, 5);
+					}
+				} else { // [x, y]
+					for (i = 0; i < dataLength; i++) {
+						pt = data[i];
+						xData[i] = pt[0];
+						yData[i] = pt[1];
+					}
+				}
+			}
+		} else {
+			for (i = 0; i < dataLength; i++) {
+				pt = { series: series };
+				series.pointClass.prototype.applyOptions.apply(pt, [data[i]]);
+				xData[i] = pt.x;
+				yData[i] = ohlc ? [pt.open, pt.high, pt.low, pt.close] : pt.y;
+			}
 		}
 
-		// set the data
-		series.data = data;
+		series.data = [];
+		series.options.data = data;
+		series.xData = xData;
+		series.yData = yData;
 
-		series.cleanData();
-		series.getSegments();
-
-
-		// cache attributes for shapes
-		series.getAttribs();
+		// destroy old points
+		i = (oldData && oldData.length) || 0;
+		while (i--) {
+			if (oldData[i] && oldData[i].destroy) {
+				oldData[i].destroy();
+			}
+		}
 
 		// redraw
-		series.isDirty = true;
-		chart.isDirtyBox = true;
+		series.isDirty = series.isDirtyData = chart.isDirtyBox = true;
 		if (pick(redraw, true)) {
 			chart.redraw(false);
 		}
@@ -703,28 +890,156 @@ Series.prototype = {
 	},
 
 	/**
+	 * Process the data by cropping away unused data points if the series is longer
+	 * than the crop threshold. This saves computing time for lage series.
+	 */
+	processData: function () {
+		var series = this,
+			processedXData = series.xData, // copied during slice operation below
+			processedYData = series.yData,
+			dataLength = processedXData.length,
+			cropStart = 0,
+			cropEnd = dataLength,
+			cropped,
+			i, // loop variable
+			cropThreshold = series.options.cropThreshold; // todo: consider combining it with turboThreshold
+			
+		// If the series data or axes haven't changed, don't go through this. Return false to pass
+		// the message on to override methods like in data grouping. 
+		if (series.isCartesian && !series.isDirty && !series.xAxis.isDirty && !series.yAxis.isDirty) {
+			return false;
+		}
+
+		// optionally filter out points outside the plot area
+		if (!cropThreshold || dataLength > cropThreshold || series.forceCrop) {
+			var extremes = series.xAxis.getExtremes(),
+				min = extremes.min,
+				max = extremes.max;
+
+			// it's outside current extremes
+			if (processedXData[dataLength - 1] < min || processedXData[0] > max) {
+				processedXData = [];
+				processedYData = [];
+			
+			// only crop if it's actually spilling out
+			} else if (processedXData[0] < min || processedXData[dataLength - 1] > max) {
+
+				// iterate up to find slice start
+				for (i = 0; i < dataLength; i++) {
+					if (processedXData[i] >= min) {
+						cropStart = mathMax(0, i - 1);
+						break;
+					}
+				}
+				// proceed to find slice end
+				for (; i < dataLength; i++) {
+					if (processedXData[i] > max) {
+						cropEnd = i + 1;
+						break;
+					}
+				}
+				processedXData = processedXData.slice(cropStart, cropEnd);
+				processedYData = processedYData.slice(cropStart, cropEnd);
+				cropped = true;
+			}
+		}
+
+		series.cropped = cropped; // undefined or true
+		series.cropStart = cropStart;
+		series.processedXData = processedXData;
+		series.processedYData = processedYData;
+	},
+
+	/**
+	 * Generate the data point after the data has been processed by cropping away
+	 * unused points and optionally grouped in Highcharts Stock.
+	 */
+	generatePoints: function () {
+		var series = this,
+			options = series.options,
+			dataOptions = options.data,
+			data = series.data,
+			dataLength,
+			processedXData = series.processedXData,
+			processedYData = series.processedYData,
+			pointClass = series.pointClass,
+			processedDataLength = processedXData.length,
+			cropStart = series.cropStart || 0,
+			cursor,
+			hasGroupedData = series.hasGroupedData,
+			point,
+			points = [],
+			i;
+
+		if (!data && !hasGroupedData) {
+			var arr = [];
+			arr.length = dataOptions.length;
+			data = series.data = arr;
+		}
+
+		for (i = 0; i < processedDataLength; i++) {
+			cursor = cropStart + i;
+			if (!hasGroupedData) {
+				if (data[cursor]) {
+					point = data[cursor];
+				} else {
+					data[cursor] = point = (new pointClass()).init(series, dataOptions[cursor], processedXData[i]);
+				}
+				points[i] = point;
+			} else {
+				// splat the y data in case of ohlc data array
+				points[i] = (new pointClass()).init(series, [processedXData[i]].concat(splat(processedYData[i])));
+			}
+		}
+
+		// hide cropped-away points - this only runs when the number of points is above cropThreshold
+		if (data && processedDataLength !== (dataLength = data.length)) {
+			for (i = 0; i < dataLength; i++) {
+				if (i === cropStart && !hasGroupedData) { // when has grouped data, clear all points
+					i += processedDataLength;
+				}
+				if (data[i]) {
+					data[i].destroyElements();
+				}
+			}
+		}
+
+		series.data = data;
+		series.points = points;
+	},
+
+	/**
 	 * Translate data points from raw data values to chart specific positioning data
 	 * needed later in drawPoints, drawGraph and drawTracker.
 	 */
 	translate: function () {
+		if (!this.processedXData) { // hidden series
+			this.processData();
+		}
+		this.generatePoints();
 		var series = this,
 			chart = series.chart,
-			stacking = series.options.stacking,
-			categories = series.xAxis.categories,
+			options = series.options,
+			stacking = options.stacking,
+			xAxis = series.xAxis,
+			categories = xAxis.categories,
 			yAxis = series.yAxis,
-			data = series.data,
-			i = data.length;
-
-		// do the translation
-		while (i--) {
-			var point = data[i],
+			points = series.points,
+			dataLength = points.length,
+			hasModifyValue = !!series.modifyValue,
+			i;
+		
+		for (i = 0; i < dataLength; i++) {
+			var point = points[i],
 				xValue = point.x,
 				yValue = point.y,
 				yBottom = point.low,
 				stack = yAxis.stacks[(yValue < 0 ? '-' : '') + series.stackKey],
 				pointStack,
 				pointStackTotal;
-			point.plotX = series.xAxis.translate(xValue);
+				
+			// get the plotX translation
+			point.plotX = mathRound(series.xAxis.translate(xValue) * 10) / 10; // Math.round fixes #591
 
 			// calculate the bottom y value for stacked series
 			if (stacking && series.visible && stack && stack[xValue]) {
@@ -745,10 +1060,15 @@ Series.prototype = {
 			if (defined(yBottom)) {
 				point.yBottom = yAxis.translate(yBottom, 0, 1, 0, 1);
 			}
+			
+			// general hook, used for Highstock compare mode
+			if (hasModifyValue) {
+				yValue = series.modifyValue(yValue, point);
+			}
 
 			// set the y value
 			if (yValue !== null) {
-				point.plotY = yAxis.translate(yValue, 0, 1, 0, 1);
+				point.plotY = mathRound(yAxis.translate(yValue, 0, 1, 0, 1) * 10) / 10; // Math.round fixes #591
 			}
 
 			// set client related positions for mouse tracking
@@ -760,7 +1080,11 @@ Series.prototype = {
 			point.category = categories && categories[point.x] !== UNDEFINED ?
 				categories[point.x] : point.x;
 
+
 		}
+
+		// now that we have the cropped data, build the segments
+		series.getSegments();
 	},
 	/**
 	 * Memoize tooltip texts and positions
@@ -769,11 +1093,20 @@ Series.prototype = {
 		var series = this,
 			chart = series.chart,
 			inverted = chart.inverted,
-			data = [],
+			points = [],
+			pointsLength,
 			plotSize = mathRound((inverted ? chart.plotTop : chart.plotLeft) + chart.plotSizeX),
 			low,
 			high,
+			xAxis = series.xAxis,
+			point,
+			i,
 			tooltipPoints = []; // a lookup array for each pixel in the x dimension
+
+		// don't waste resources if tracker is disabled
+		if (series.options.enableMouseTracking === false) {
+			return;
+		}
 
 		// renew
 		if (renew) {
@@ -781,32 +1114,47 @@ Series.prototype = {
 		}
 
 		// concat segments to overcome null values
-		each(series.segments, function (segment) {
-			data = data.concat(segment);
+		each(series.segments || series.points, function (segment) {
+			points = points.concat(segment);
 		});
 
-		// loop the concatenated data and apply each point to all the closest
+		// loop the concatenated points and apply each point to all the closest
 		// pixel positions
-		if (series.xAxis && series.xAxis.reversed) {
-			data = data.reverse();//reverseArray(data);
+		if (xAxis && xAxis.reversed) {
+			points = points.reverse();//reverseArray(points);
 		}
 
-		each(data, function (point, i) {
-
-			low = data[i - 1] ? data[i - 1]._high + 1 : 0;
-			high = point._high = data[i + 1] ?
-				(mathFloor((point.plotX + (data[i + 1] ? data[i + 1].plotX : plotSize)) / 2)) :
+		//each(points, function (point, i) {
+		pointsLength = points.length;
+		for (i = 0; i < pointsLength; i++) {
+			point = points[i];
+			low = points[i - 1] ? points[i - 1]._high + 1 : 0;
+			high = point._high = points[i + 1] ?
+				(mathFloor((point.plotX + (points[i + 1] ? points[i + 1].plotX : plotSize)) / 2)) :
 				plotSize;
 
 			while (low <= high) {
 				tooltipPoints[inverted ? plotSize - low++ : low++] = point;
 			}
-		});
+		}
 		series.tooltipPoints = tooltipPoints;
 	},
 
-
-
+	/**
+	 * Format the header of the tooltip
+	 */
+	tooltipHeaderFormatter: function (key) {
+		var series = this,
+			tooltipOptions = series.tooltipOptions,
+			xDateFormat = tooltipOptions.xDateFormat || '%A, %b %e, %Y',
+			xAxis = series.xAxis,
+			isDateTime = xAxis && xAxis.options.type === 'datetime';
+		
+		return tooltipOptions.headerFormat
+			.replace('{point.key}', isDateTime ? dateFormat(xDateFormat, key) :  key)
+			.replace('{series.name}', series.name)
+			.replace('{series.color}', series.color);
+	},
 
 	/**
 	 * Series mouse over handler
@@ -829,14 +1177,6 @@ Series.prototype = {
 		// only if defined
 		if (series.options.events.mouseOver) {
 			fireEvent(series, 'mouseOver');
-		}
-
-
-		// bring to front
-		// Todo: optimize. This is one of two operations slowing down the tooltip in Firefox.
-		// Can the tracking be done otherwise?
-		if (series.tracker) {
-			series.tracker.toFront();
 		}
 
 		// hover this
@@ -867,7 +1207,7 @@ Series.prototype = {
 
 
 		// hide the tooltip
-		if (tooltip && !options.stickyTracking) {
+		if (tooltip && !options.stickyTracking && !tooltip.shared) {
 			tooltip.hide();
 		}
 
@@ -912,7 +1252,7 @@ Series.prototype = {
 	drawPoints: function () {
 		var series = this,
 			pointAttr,
-			data = series.data,
+			points = series.points,
 			chart = series.chart,
 			plotX,
 			plotY,
@@ -922,9 +1262,9 @@ Series.prototype = {
 			graphic;
 
 		if (series.options.marker.enabled) {
-			i = data.length;
+			i = points.length;
 			while (i--) {
-				point = data[i];
+				point = points[i];
 				plotX = point.plotX;
 				plotY = point.plotY;
 				graphic = point.graphic;
@@ -932,26 +1272,25 @@ Series.prototype = {
 				// only draw the point if y is defined
 				if (plotY !== UNDEFINED && !isNaN(plotY)) {
 
-					/* && removed this code because points stayed after zoom
-						point.plotX >= 0 && point.plotX <= chart.plotSizeX &&
-						point.plotY >= 0 && point.plotY <= chart.plotSizeY*/
-
 					// shortcuts
 					pointAttr = point.pointAttr[point.selected ? SELECT_STATE : NORMAL_STATE];
 					radius = pointAttr.r;
 
 					if (graphic) { // update
-						graphic.animate({
-							x: plotX,
-							y: plotY,
-							r: radius
-						});
+						graphic.animate(extend({
+							x: plotX - radius,
+							y: plotY - radius
+						}, graphic.symbolName ? { // don't apply to image symbols #507
+							width: 2 * radius,
+							height: 2 * radius
+						} : {}));
 					} else {
 						point.graphic = chart.renderer.symbol(
 							pick(point.marker && point.marker.symbol, series.symbol),
-							plotX,
-							plotY,
-							radius
+							plotX - radius,
+							plotY - radius,
+							2 * radius,
+							2 * radius
 						)
 						.attr(pointAttr)
 						.add(series.group);
@@ -1005,7 +1344,7 @@ Series.prototype = {
 				stroke: seriesColor,
 				fill: seriesColor
 			},
-			data = series.data,
+			points = series.points,
 			i,
 			point,
 			seriesPointAttr = [],
@@ -1045,9 +1384,9 @@ Series.prototype = {
 		// Generate the point-specific attribute collections if specific point
 		// options are given. If not, create a referance to the series wide point
 		// attributes
-		i = data.length;
+		i = points.length;
 		while (i--) {
-			point = data[i];
+			point = points[i];
 			normalOptions = (point.options && point.options.marker) || point.options;
 			if (normalOptions && normalOptions.enabled === false) {
 				normalOptions.radius = 0;
@@ -1120,16 +1459,28 @@ Series.prototype = {
 		var series = this,
 			chart = series.chart,
 			seriesClipRect = series.clipRect,
-			//chartSeries = series.chart.series,
-			issue134 = /\/5[0-9\.]+ (Safari|Mobile)\//.test(userAgent), // todo: update when Safari bug is fixed
+			issue134 = /AppleWebKit\/533/.test(userAgent),
 			destroy,
-			prop;
+			i,
+			data = series.data || [],
+			point,
+			prop,
+			axis;
 
 		// add event hook
 		fireEvent(series, 'destroy');
 
 		// remove all events
 		removeEvent(series);
+		
+		// erase from axes
+		each(['xAxis', 'yAxis'], function (AXIS) {
+			axis = series[AXIS];
+			if (axis) {
+				erase(axis.series, series);
+				axis.isDirty = true;
+			}
+		});
 
 		// remove legend items
 		if (series.legendItem) {
@@ -1137,9 +1488,14 @@ Series.prototype = {
 		}
 
 		// destroy all points with their elements
-		each(series.data, function (point) {
-			point.destroy();
-		});
+		i = data.length;
+		while (i--) {
+			point = data[i];
+			if (point && point.destroy) {
+				point.destroy();
+			}
+		}
+		series.points = null;
 
 		// If this series clipRect is not the global one (which is removed on chart.destroy) we
 		// destroy it here.
@@ -1180,12 +1536,16 @@ Series.prototype = {
 			var series = this,
 				x,
 				y,
-				data = series.data,
+				points = series.points,
 				seriesOptions = series.options,
 				options = seriesOptions.dataLabels,
 				str,
 				dataLabelsGroup = series.dataLabelsGroup,
 				chart = series.chart,
+				xAxis = series.xAxis,
+				groupLeft = xAxis ? xAxis.left : chart.plotLeft,
+				yAxis = series.yAxis,
+				groupTop = yAxis ? yAxis.top : chart.plotTop,
 				renderer = chart.renderer,
 				inverted = chart.inverted,
 				seriesType = series.type,
@@ -1214,6 +1574,7 @@ Series.prototype = {
 				}
 			}
 
+
 			// create a separate group for the data labels to avoid rotation
 			if (!dataLabelsGroup) {
 				dataLabelsGroup = series.dataLabelsGroup =
@@ -1222,10 +1583,10 @@ Series.prototype = {
 							visibility: series.visible ? VISIBLE : HIDDEN,
 							zIndex: 6
 						})
-						.translate(chart.plotLeft, chart.plotTop)
+						.translate(groupLeft, groupTop)
 						.add();
 			} else {
-				dataLabelsGroup.translate(chart.plotLeft, chart.plotTop);
+				dataLabelsGroup.translate(groupLeft, groupTop);
 			}
 
 			// determine the color
@@ -1236,7 +1597,7 @@ Series.prototype = {
 			options.style.color = pick(color, series.color, 'black');
 
 			// make the labels for each point
-			each(data, function (point) {
+			each(points, function (point) {
 				var barX = point.barX,
 					plotX = (barX && barX + point.barW / 2) || point.plotX || -999,
 					plotY = pick(point.plotY, -999),
@@ -1294,11 +1655,6 @@ Series.prototype = {
 					}
 				}
 
-
-				/*if (series.isCartesian) {
-					dataLabel[chart.isInsidePlot(plotX, plotY) ? 'show' : 'hide']();
-				}*/
-
 				if (isBarLike && seriesOptions.stacking && dataLabel) {
 					var barY = point.barY,
 						barW = point.barW,
@@ -1333,7 +1689,7 @@ Series.prototype = {
 			dashStyle =  options.dashStyle,
 			segmentPath,
 			renderer = chart.renderer,
-			translatedThreshold = series.yAxis.getThreshold(options.threshold || 0),
+			translatedThreshold = series.yAxis.getThreshold(options.threshold),
 			useArea = /^area/.test(series.type),
 			singlePoints = [], // used in drawTracker
 			areaPath = [],
@@ -1391,8 +1747,17 @@ Series.prototype = {
 					areaSegmentPath.push(L, segmentPath[1], segmentPath[2]);
 				}
 				if (options.stacking && series.type !== 'areaspline') {
-					// follow stack back. Todo: implement areaspline
+					
+					// Follow stack back. Todo: implement areaspline. A general solution could be to 
+					// reverse the entire graphPath of the previous series, though may be hard with
+					// splines and with series with different extremes
 					for (i = segment.length - 1; i >= 0; i--) {
+					
+						// step line?
+						if (i < segment.length - 1 && options.step) {
+							areaSegmentPath.push(segment[i + 1].plotX, segment[i].yBottom);
+						}
+						
 						areaSegmentPath.push(segment[i].plotX, segment[i].yBottom);
 					}
 
@@ -1463,6 +1828,7 @@ Series.prototype = {
 			group,
 			setInvert,
 			options = series.options,
+			doClip = options.clip !== false,
 			animation = options.animation,
 			doAnimation = animation && series.animate,
 			duration = doAnimation ? (animation && animation.duration) || 500 : 0,
@@ -1472,10 +1838,14 @@ Series.prototype = {
 
 		// Add plot area clipping rectangle. If this is before chart.hasRendered,
 		// create one shared clipRect.
+
+		// Todo: since creating the clip property, the clipRect is created but
+		// never used when clip is false. A better way would be that the animation
+		// would run, then the clipRect destroyed.
 		if (!clipRect) {
 			clipRect = series.clipRect = !chart.hasRendered && chart.clipRect ?
 				chart.clipRect :
-				renderer.clipRect(0, 0, chart.plotSizeX, chart.plotSizeY);
+				renderer.clipRect(0, 0, chart.plotSizeX, chart.plotSizeY + 1);
 			if (!chart.clipRect) {
 				chart.clipRect = clipRect;
 			}
@@ -1500,12 +1870,15 @@ Series.prototype = {
 					removeEvent(chart, 'resize', setInvert);
 				});
 			}
-			group.clip(series.clipRect)
-				.attr({
+
+			if (doClip) {
+				group.clip(series.clipRect);
+			}
+			group.attr({
 					visibility: series.visible ? VISIBLE : HIDDEN,
 					zIndex: options.zIndex
 				})
-				.translate(chart.plotLeft, chart.plotTop)
+				.translate(series.xAxis.left, series.yAxis.top)
 				.add(chart.seriesGroup);
 		}
 
@@ -1517,7 +1890,7 @@ Series.prototype = {
 		}
 
 		// cache attributes for shapes
-		//series.getAttribs();
+		series.getAttribs();
 
 		// draw the graph if any
 		if (series.drawGraph) {
@@ -1542,13 +1915,15 @@ Series.prototype = {
 			clipRect.isAnimating = false;
 			group = series.group; // can be destroyed during the timeout
 			if (group && clipRect !== chart.clipRect && clipRect.renderer) {
-				group.clip((series.clipRect = chart.clipRect));
+				if (doClip) {
+					group.clip((series.clipRect = chart.clipRect));
+				}
 				clipRect.destroy();
 			}
 		}, duration);
 
-
-		series.isDirty = false; // means data is in accordance with what you see
+		series.isDirty = series.isDirtyData = false; // means data is in accordance with what you see
+		// (See #322) series.isDirty = series.isDirtyData = false; // means data is in accordance with what you see
 
 	},
 
@@ -1558,15 +1933,8 @@ Series.prototype = {
 	redraw: function () {
 		var series = this,
 			chart = series.chart,
+			wasDirtyData = series.isDirtyData, // cache it here as it is set to false in render, but used after
 			group = series.group;
-
-		/*if (clipRect) {
-			stop(clipRect);
-			clipRect.animate({ // for chart resize
-				width: chart.plotSizeX,
-				height: chart.plotSizeY
-			});
-		}*/
 
 		// reposition on resize
 		if (group) {
@@ -1578,14 +1946,18 @@ Series.prototype = {
 			}
 
 			group.animate({
-				translateX: chart.plotLeft,
-				translateY: chart.plotTop
+				translateX: series.xAxis.left,
+				translateY: series.yAxis.top
 			});
 		}
 
 		series.translate();
 		series.setTooltipPoints(true);
+
 		series.render();
+		if (wasDirtyData) {
+			fireEvent(series, 'updatedData');
+		}
 	},
 
 	/**
@@ -1634,7 +2006,7 @@ Series.prototype = {
 			dataLabelsGroup = series.dataLabelsGroup,
 			showOrHide,
 			i,
-			data = series.data,
+			points = series.points,
 			point,
 			ignoreHiddenSeries = chart.options.chart.ignoreHiddenSeries,
 			oldVisibility = series.visible;
@@ -1651,10 +2023,10 @@ Series.prototype = {
 		// show or hide trackers
 		if (seriesTracker) {
 			seriesTracker[showOrHide]();
-		} else {
-			i = data.length;
+		} else if (points) {
+			i = points.length;
 			while (i--) {
-				point = data[i];
+				point = points[i];
 				if (point.tracker) {
 					point.tracker[showOrHide]();
 				}

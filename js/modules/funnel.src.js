@@ -1,5 +1,5 @@
 /**
- * @license Highcharts JS v2.1.5 (2011-06-xx)
+ * @license Highcharts JS v2.1.4 (2011-03-02)
  * Funnel module, Beta
  *
  * (c) 2010 Torstein Hønsi

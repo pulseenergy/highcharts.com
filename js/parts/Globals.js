@@ -27,13 +27,12 @@ var doc = document,
 	hasTouch = doc.documentElement.ontouchstart !== undefined,
 	symbolSizes = {},
 	idCounter = 0,
-	timeFactor = 1, // 1 = JavaScript time, 1000 = Unix time
 	garbageBin,
 	defaultOptions,
 	dateFormat, // function
 	globalAnimation,
 	pathAnim,
-
+	timeUnits,
 
 	// some constants for frequently used strings
 	UNDEFINED,
@@ -59,9 +58,25 @@ var doc = document,
 	 * Opera: 0.00000000001 (unlimited)
 	 */
 	TRACKER_FILL = 'rgba(192,192,192,' + (hasSVG ? 0.000001 : 0.002) + ')', // invisible but clickable
+	//TRACKER_FILL = 'rgba(192,192,192,0.5)',
 	NORMAL_STATE = '',
 	HOVER_STATE = 'hover',
 	SELECT_STATE = 'select',
+	MILLISECOND = 'millisecond',
+	SECOND = 'second',
+	MINUTE = 'minute',
+	HOUR = 'hour',
+	DAY = 'day',
+	WEEK = 'week',
+	MONTH = 'month',
+	YEAR = 'year',
+
+	// constants for attributes
+	FILL = 'fill',
+	LINEAR_GRADIENT = 'linearGradient',
+	STOPS = 'stops',
+	STROKE = 'stroke',
+	STROKE_WIDTH = 'stroke-width',
 
 	// time methods, changed based on whether or not UTC is used
 	makeTime,
@@ -86,6 +101,7 @@ var doc = document,
 	// default adapters below.
 	each = adapter.each,
 	grep = adapter.grep,
+	offset = adapter.offset,
 	map = adapter.map,
 	merge = adapter.merge,
 	addEvent = adapter.addEvent,
@@ -96,3 +112,6 @@ var doc = document,
 
 	// lookup over the types and the associated classes
 	seriesTypes = {};
+
+// The Highcharts namespace
+win.Highcharts = {};
