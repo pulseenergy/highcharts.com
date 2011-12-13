@@ -514,7 +514,7 @@ function stableSort(arr, sortFunction) {
 
 	arr.sort(function (a, b) {
 		var sortValue = sortFunction(a, b);
-		return sortValue === 0 ? a.ss_i - b.ss_i : sortValue;
+		return sortValue === 0 || isNaN(sortValue) ? a.ss_i - b.ss_i : sortValue;
 	});
 
 	// Remove index from items
