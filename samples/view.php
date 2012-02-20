@@ -14,8 +14,12 @@ $next = $i + 1;
 		
 		<script type="text/javascript" src="http://code.jquery.com/jquery-1.7.js"></script>
 		<script type="text/javascript">
-		<?php include("$path/demo.js"); ?>
+		<?php @include("$path/demo.js"); ?>
 		</script>
+		
+		<style type="text/css">
+			<?php @include("$path/demo.css"); ?>
+		</style>
 		
 		<script type="text/javascript">
 			$(function() {
@@ -33,6 +37,10 @@ $next = $i + 1;
 						}
 						
 						$(li).addClass('hilighted');
+						$(contentDoc.body).animate({
+							scrollTop: $(li).offset().top - 50
+						},'slow');
+
 						contentDoc.currentLi = li;
 					}
 					
@@ -54,10 +62,6 @@ $next = $i + 1;
 						location.reload();
 					});
 					
-					// the jsfiddle button
-					$('#jsfiddle').click(function() {
-						location.href = 'http://jsfiddle.net/gh/get/jquery/1.6/highslide-software/highcharts.com/tree/stock/samples/<?php echo $path ?>/';
-					});
 				}
 			});
 		</script>
@@ -69,14 +73,19 @@ $next = $i + 1;
 		</style>
 		
 	</head>
-	<body>
-		<h1><?php echo ($next - 1) ?>. /samples/<?php echo $path ?></h1> 
-		<?php include("$path/demo.html"); ?>
+	<body style="margin: 0">
 		
-		<div style="text-align: center">
+		<div style="text-align: center; background: #57544A; color: silver; padding: 0.3em">
 			<button id="next" disabled="disabled">Next</button>
-			<button id="reload">Reload</button>
-			<button id="jsfiddle">jsFiddle</button>
+			<button id="reload" style="margin-left: 1em">Reload</button>
+			<a style="color: white; font-weight: bold; text-decoration: none; margin-left: 1em" 
+				href="http://jsfiddle.net/gh/get/jquery/1.6/highslide-software/highcharts.com/tree/master/samples/<?php echo $path ?>/"
+				target="_blank">» jsFiddle</a>
 		</div>
+		<div style="margin: 1em">
+		<h1><?php echo ($next - 1) ?>. /samples/<?php echo $path ?></h1> 
+		<?php @include("$path/demo.html"); ?>
+		</div>
+		
 	</body>
 </html>

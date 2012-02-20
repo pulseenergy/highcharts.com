@@ -5,6 +5,10 @@ $(function() {
 	        renderTo: 'container'
 	    },
 	    
+	    xAxis: {
+	    	minRange: 30 * 24 * 3600 * 1000
+	    },
+	    
 	    rangeSelector: {
 	    	selected: 1
 	    },

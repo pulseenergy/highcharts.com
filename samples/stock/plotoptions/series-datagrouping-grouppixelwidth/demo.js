@@ -14,7 +14,7 @@ $(function() {
 	    },
 	    
 	    tooltip: {
-	    	shared: false
+	    	valueDecimals: 4
 	    },
 	    
 	    rangeSelector: {

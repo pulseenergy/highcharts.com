@@ -160,7 +160,7 @@ var VMLElement = extendClass(SVGElement, {
 				// check for a specific attribute setter
 				result = attrSetters[key] && attrSetters[key](value, key);
 
-				if (result !== false) {
+				if (result !== false && value !== null) { // #620
 
 					if (result !== UNDEFINED) {
 						value = result; // the attribute setter has returned a new value to set
@@ -804,19 +804,26 @@ VMLRenderer.prototype = merge(SVGRenderer.prototype, { // inherit SVGRenderer
 				}
 			});
 
-			// calculate the angle based on the linear vector
-			angle = 90  - math.atan(
-				(y2 - y1) / // y vector
-				(x2 - x1) // x vector
-				) * 180 / mathPI;
-
-
-			// when colors attribute is used, the meanings of opacity and o:opacity2
-			// are reversed.
-			markup = ['<', prop, ' colors="0% ', color1, ',100% ', color2, '" angle="', angle,
-				'" opacity="', opacity2, '" o:opacity2="', opacity1,
-				'" type="gradient" focus="100%" method="any" />'];
-			createElement(this.prepVML(markup), null, null, elem);
+			// Apply the gradient to fills only.
+			if (prop === 'fill') {
+				// calculate the angle based on the linear vector
+				angle = 90  - math.atan(
+					(y2 - y1) / // y vector
+					(x2 - x1) // x vector
+					) * 180 / mathPI;
+	
+	
+				// when colors attribute is used, the meanings of opacity and o:opacity2
+				// are reversed.
+				markup = ['<fill colors="0% ', color1, ',100% ', color2, '" angle="', angle,
+					'" opacity="', opacity2, '" o:opacity2="', opacity1,
+					'" type="gradient" focus="100%" method="any" />'];
+				createElement(this.prepVML(markup), null, null, elem);
+			
+			// Gradients are not supported for VML stroke, return the first color. #722.
+			} else {
+				return stopColor;
+			}
 
 
 		// if the color is an rgba color, split it and add a fill node
@@ -1007,13 +1014,12 @@ VMLRenderer.prototype = merge(SVGRenderer.prototype, { // inherit SVGRenderer
 				cosEnd = mathCos(end),
 				sinEnd = mathSin(end),
 				innerRadius = options.innerR,
-				circleCorrection = 0.07 / radius,
+				circleCorrection = 0.08 / radius, // #760
 				innerCorrection = (innerRadius && 0.1 / innerRadius) || 0;
 
 			if (end - start === 0) { // no angle, don't show it.
 				return ['x'];
 
-			//} else if (end - start == 2 * mathPI) { // full circle
 			} else if (2 * mathPI - end + start < circleCorrection) { // full circle
 				// empirical correction found by trying out the limits for different radii
 				cosEnd = -circleCorrection;

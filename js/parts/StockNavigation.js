@@ -43,12 +43,15 @@ extend(defaultOptions, {
 			fillOpacity: 0.4,
 			dataGrouping: {
 				approximation: 'average',
+				groupPixelWidth: 2,
 				smoothed: true,
 				units: units
 			},
 			dataLabels: {
 				enabled: false
 			},
+			id: PREFIX + 'navigator-series',
+			lineColor: '#4572A7',
 			lineWidth: 1,
 			marker: {
 				enabled: false
@@ -147,7 +150,7 @@ Highcharts.Scroller = function (chart) {
 		scrollbarHeight = scrollbarEnabled ? scrollbarOptions.height : 0,
 		outlineHeight = height + scrollbarHeight,
 		barBorderRadius = scrollbarOptions.barBorderRadius,
-		top = navigatorOptions.top || chart.chartHeight - height - scrollbarHeight - chartOptions.chart.spacingBottom,
+		top,
 		halfOutline = outlineWidth / 2,
 		outlineTop,
 		scrollerLeft,
@@ -173,6 +176,13 @@ Highcharts.Scroller = function (chart) {
 	chart.resetZoomEnabled = false;
 
 	/**
+	 * Return the top of the navigation 
+	 */
+	function getAxisTop(chartHeight) {
+		return navigatorOptions.top || chartHeight - height - scrollbarHeight - chartOptions.chart.spacingBottom;
+	}
+
+	/**
 	 * Draw one of the handles on the side of the zoomed range in the navigator
 	 * @param {Number} x The x center for the handle
 	 * @param {Number} index 0 for left and 1 for right
@@ -192,7 +202,7 @@ Highcharts.Scroller = function (chart) {
 			// the group
 			handles[index] = renderer.g()
 				.css({ cursor: 'e-resize' })
-				.attr({ zIndex: 3 })
+				.attr({ zIndex: 4 - index }) // zIndex = 3 for right handle, 4 for left
 				.add();
 
 			// the rectangle
@@ -655,10 +665,13 @@ Highcharts.Scroller = function (chart) {
 	 */
 	function init() {
 		var xAxisIndex = chart.xAxis.length,
-			yAxisIndex = chart.yAxis.length;
+			yAxisIndex = chart.yAxis.length,
+			baseChartSetSize = chart.setSize;
 
 		// make room below the chart
 		chart.extraBottomMargin = outlineHeight + navigatorOptions.margin;
+		// get the top offset
+		top = getAxisTop(chart.chartHeight);
 
 		if (navigatorEnabled) {
 			var baseOptions = baseSeries.options,
@@ -672,7 +685,9 @@ Highcharts.Scroller = function (chart) {
 
 
 			// an x axis is required for scrollbar also
-			xAxis = new chart.Axis(merge(navigatorOptions.xAxis, {
+			xAxis = new chart.Axis(merge({
+				ordinal: baseSeries.xAxis.options.ordinal // inherit base xAxis' ordinal option
+			}, navigatorOptions.xAxis, {
 				isX: true,
 				type: 'datetime',
 				index: xAxisIndex,
@@ -741,6 +756,14 @@ Highcharts.Scroller = function (chart) {
 				}
 			};
 		}
+		
+		
+		// Override the chart.setSize method to adjust the xAxis and yAxis top option as well.
+		// This needs to be done prior to chart.resize
+		chart.setSize = function (width, height, animation) {
+			xAxis.options.top = yAxis.options.top = top = getAxisTop(height);
+			baseChartSetSize.call(chart, width, height, animation);
+		};
 
 		addEvents();
 	}
@@ -910,7 +933,7 @@ Highcharts.RangeSelector = function (chart) {
 			range = 30 * 24 * 3600 * 1000 * count;
 		} else if (type === 'ytd') {
 			date = new Date(0);
-			now = new Date();
+			now = new Date(dataMax);
 			year = now.getFullYear();
 			date.setFullYear(year);
 
@@ -1065,8 +1088,8 @@ Highcharts.RangeSelector = function (chart) {
 			}
 
 			if (!isNaN(value) &&
-				((isMin && (value > extremes.dataMin && value < rightBox.HCTime)) ||
-				(!isMin && (value < extremes.dataMax && value > leftBox.HCTime)))
+				((isMin && (value >= extremes.dataMin && value <= rightBox.HCTime)) ||
+				(!isMin && (value <= extremes.dataMax && value >= leftBox.HCTime)))
 			) {
 				chart.xAxis[0].setExtremes(
 					isMin ? value : extremes.min,
@@ -1181,7 +1204,12 @@ Highcharts.RangeSelector = function (chart) {
 		}
 
 		// Clear input element events
-		leftBox.onfocus = leftBox.onblur = leftBox.onchange = rightBox.onfocus = rightBox.onblur = rightBox.onchange = null;
+		if (leftBox) {
+			leftBox.onfocus = leftBox.onblur = leftBox.onchange = null;
+		}
+		if (rightBox) {
+			rightBox.onfocus = rightBox.onblur = rightBox.onchange = null;
+		}
 
 		// Discard divs and spans
 		each([leftBox, rightBox, boxSpanElements.min, boxSpanElements.max, divAbsolute, divRelative], function (item) {
@@ -1189,7 +1217,7 @@ Highcharts.RangeSelector = function (chart) {
 		});
 		// Null the references
 		leftBox = rightBox = boxSpanElements = div = divAbsolute = divRelative = null;
-		
+
 	}
 
 	// Run RangeSelector

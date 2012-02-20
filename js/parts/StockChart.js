@@ -15,6 +15,7 @@ Highcharts.StockChart = function (options, callback) {
 					}
 				}
 			},
+			// gapSize: 0, // docs
 			shadow: false,
 			states: {
 				hover: {
@@ -31,6 +32,7 @@ Highcharts.StockChart = function (options, callback) {
 		return merge({ // defaults
 				minPadding: 0,
 				maxPadding: 0,
+				ordinal: true,
 				title: {
 					text: null
 				},
@@ -164,7 +166,7 @@ seriesProto.processData = function () {
 	var series = this;
 	
 	// call base method
-	seriesProcessData.apply(this);
+	seriesProcessData.apply(this, arguments);
 	
 	if (series.options.compare) {
 		

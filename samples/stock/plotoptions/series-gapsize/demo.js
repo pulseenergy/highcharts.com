@@ -5,12 +5,14 @@ $(function() {
 	        renderTo: 'container'
 	    },
 	    
-	    xAxis: {
-	    	maxZoom: 30 * 24 * 3600 * 1000
-	    },
-	    
 	    rangeSelector: {
 	    	selected: 1
+	    },
+	    
+	    plotOptions: {
+	    	line: {
+	    		gapSize: 2
+	    	}
 	    },
 	    
 	    series: [{

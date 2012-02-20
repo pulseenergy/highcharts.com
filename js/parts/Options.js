@@ -1,72 +1,3 @@
-/**
- * Set the time methods globally based on the useUTC option. Time method can be either
- * local time or UTC (default).
- */
-function setTimeMethods() {
-	var useUTC = defaultOptions.global.useUTC;
-
-	makeTime = useUTC ? Date.UTC : function (year, month, date, hours, minutes, seconds) {
-		return new Date(
-			year,
-			month,
-			pick(date, 1),
-			pick(hours, 0),
-			pick(minutes, 0),
-			pick(seconds, 0)
-		).getTime();
-	};
-	getMinutes = useUTC ? 'getUTCMinutes' : 'getMinutes';
-	getHours = useUTC ? 'getUTCHours' : 'getHours';
-	getDay = useUTC ? 'getUTCDay' : 'getDay';
-	getDate = useUTC ? 'getUTCDate' : 'getDate';
-	getMonth = useUTC ? 'getUTCMonth' : 'getMonth';
-	getFullYear = useUTC ? 'getUTCFullYear' : 'getFullYear';
-	setMinutes = useUTC ? 'setUTCMinutes' : 'setMinutes';
-	setHours = useUTC ? 'setUTCHours' : 'setHours';
-	setDate = useUTC ? 'setUTCDate' : 'setDate';
-	setMonth = useUTC ? 'setUTCMonth' : 'setMonth';
-	setFullYear = useUTC ? 'setUTCFullYear' : 'setFullYear';
-
-}
-
-/**
- * Merge the default options with custom options and return the new options structure
- * @param {Object} options The new custom options
- */
-function setOptions(options) {
-	defaultOptions = merge(defaultOptions, options);
-
-	// apply UTC
-	setTimeMethods();
-
-	return defaultOptions;
-}
-
-/**
- * Get the updated default options. Merely exposing defaultOptions for outside modules
- * isn't enough because the setOptions method creates a new object.
- */
-function getOptions() {
-	return defaultOptions;
-}
-
-/**
- * Discard an element by moving it to the bin and delete
- * @param {Object} The HTML node to discard
- */
-function discardElement(element) {
-	// create a garbage bin element, not part of the DOM
-	if (!garbageBin) {
-		garbageBin = createElement(DIV);
-	}
-
-	// move the node and empty bin
-	if (element) {
-		garbageBin.appendChild(element);
-	}
-	garbageBin.innerHTML = '';
-}
-
 /* ****************************************************************************
  * Handle the options                                                         *
  *****************************************************************************/
@@ -96,7 +27,7 @@ defaultOptions = {
 		loading: 'Loading...',
 		months: ['January', 'February', 'March', 'April', 'May', 'June', 'July',
 				'August', 'September', 'October', 'November', 'December'],
-		shortMonths: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'June', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+		shortMonths: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
 		weekdays: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
 		decimalPoint: '.',
 		resetZoom: 'Reset zoom',
@@ -134,10 +65,22 @@ defaultOptions = {
 		},
 		backgroundColor: '#FFFFFF',
 		//plotBackgroundColor: null,
-		plotBorderColor: '#C0C0C0'
+		plotBorderColor: '#C0C0C0',
 		//plotBorderWidth: 0,
 		//plotShadow: false,
 		//zoomType: ''
+		resetZoomButton: { // docs
+			theme: {
+				zIndex: 20
+			},
+			position: {
+				align: 'right',
+				x: -10,
+				//verticalAlign: 'top',
+				y: 10
+			},
+			relativeTo: 'plot'
+		}
 	},
 	title: {
 		text: 'Chart title',
@@ -231,9 +174,9 @@ defaultOptions = {
 			stickyTracking: true
 			//tooltip: {
 				//pointFormat: '<span style="color:{series.color}">{series.name}</span>: <b>{point.y}</b>'
-				//yDecimals: null,
+				//valueDecimals: null,
 				//xDateFormat: '%A, %b %e, %Y',
-				//yPrefix: '',
+				//valuePrefix: '',
 				//ySuffix: ''				
 			//}
 			// turboThreshold: 1000
@@ -326,16 +269,9 @@ defaultOptions = {
 			whiteSpace: 'nowrap'
 		}
 		//xDateFormat: '%A, %b %e, %Y',
-		//yDecimals: null,
-		//yPrefix: '',
+		//valueDecimals: null,
+		//valuePrefix: '',
 		//ySuffix: ''
-	},
-
-	toolbar: {
-		itemStyle: {
-			color: '#4572A7',
-			cursor: 'pointer'
-		}
 	},
 
 	credits: {
@@ -387,7 +323,7 @@ var defaultXAxisOptions = {
 	min: null,
 	minPadding: 0.01,
 	maxPadding: 0.01,
-	//minRange: null, // docs
+	//minRange: null,
 	minorGridLineColor: '#E0E0E0',
 	// minorGridLineDashStyle: null,
 	minorGridLineWidth: 1,
@@ -610,3 +546,67 @@ defaultPlotOptions.pie = merge(defaultSeriesOptions, {
 
 // set the default time methods
 setTimeMethods();
+
+
+
+/**
+ * Set the time methods globally based on the useUTC option. Time method can be either
+ * local time or UTC (default).
+ */
+function setTimeMethods() {
+	var useUTC = defaultOptions.global.useUTC,
+		GET = useUTC ? 'getUTC' : 'get',
+		SET = useUTC ? 'setUTC' : 'set';
+
+	makeTime = useUTC ? Date.UTC : function (year, month, date, hours, minutes, seconds) {
+		return new Date(
+			year,
+			month,
+			pick(date, 1),
+			pick(hours, 0),
+			pick(minutes, 0),
+			pick(seconds, 0)
+		).getTime();
+	};
+	getMinutes =  GET + 'Minutes';
+	getHours =    GET + 'Hours';
+	getDay =      GET + 'Day';
+	getDate =     GET + 'Date';
+	getMonth =    GET + 'Month';
+	getFullYear = GET + 'FullYear';
+	setMinutes =  SET + 'Minutes';
+	setHours =    SET + 'Hours';
+	setDate =     SET + 'Date';
+	setMonth =    SET + 'Month';
+	setFullYear = SET + 'FullYear';
+
+}
+
+/**
+ * Merge the default options with custom options and return the new options structure
+ * @param {Object} options The new custom options
+ */
+function setOptions(options) {
+	
+	// Pull out axis options and apply them to the respective default axis options 
+	defaultXAxisOptions = merge(defaultXAxisOptions, options.xAxis);
+	defaultYAxisOptions = merge(defaultYAxisOptions, options.yAxis);
+	options.xAxis = options.yAxis = UNDEFINED;
+	
+	// Merge in the default options
+	defaultOptions = merge(defaultOptions, options);
+	
+	// Apply UTC
+	setTimeMethods();
+
+	return defaultOptions;
+}
+
+/**
+ * Get the updated default options. Merely exposing defaultOptions for outside modules
+ * isn't enough because the setOptions method creates a new object.
+ */
+function getOptions() {
+	return defaultOptions;
+}
+

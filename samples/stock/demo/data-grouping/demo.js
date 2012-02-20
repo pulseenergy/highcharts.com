@@ -47,10 +47,6 @@ $(function() {
 		        selected: 3
 		    },
 	
-		    xAxis: {
-		        maxZoom: 3 * 24 * 3600000 // three days
-		    },
-	
 			yAxis: {
 				title: {
 					text: 'Temperature (°C)'
@@ -71,8 +67,8 @@ $(function() {
 		        pointStart: Date.UTC(2004, 3, 1),
 		        pointInterval: 3600 * 1000,
 		        tooltip: {
-		        	yDecimals: 1,
-		        	ySuffix: '°C'
+		        	valueDecimals: 1,
+		        	valueSuffix: '°C'
 		        }
 		    }]
 	

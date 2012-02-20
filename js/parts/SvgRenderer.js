@@ -30,6 +30,7 @@ SVGElement.prototype = {
 	 */
 	animate: function (params, options, complete) {
 		var animOptions = pick(options, globalAnimation, true);
+		stop(this); // stop regardless of animation actually running, or reverting to .attr (#607)			
 		if (animOptions) {
 			animOptions = merge(animOptions);
 			if (complete) { // allows using a callback with the global animation without overwriting it
@@ -278,6 +279,26 @@ SVGElement.prototype = {
 			}
 
 		}
+		
+		// Workaround for our #732, WebKit's issue https://bugs.webkit.org/show_bug.cgi?id=78385
+		// TODO: If the WebKit team fix this bug before the final release of Chrome 18, remove the workaround.
+		if (isWebKit && /Chrome\/(18|19)/.test(userAgent)) {
+			if (nodeName === 'text' && (hash.x !== UNDEFINED || hash.y !== UNDEFINED)) {
+				var parent = element.parentNode,
+					next = element.nextSibling;
+			
+				if (parent) {
+					parent.removeChild(element);
+					if (next) {
+						parent.insertBefore(element, next);
+					} else {
+						parent.appendChild(element);
+					}
+				}
+			}
+		}
+		// End of workaround for #732
+		
 		return ret;
 	},
 
@@ -807,13 +828,13 @@ SVGRenderer.prototype = {
 		renderer.box = boxWrapper.element;
 		renderer.boxWrapper = boxWrapper;
 		renderer.alignedObjects = [];
-		renderer.url = isIE ? '' : loc.href.replace(/#.*?$/, ''); // page url used for internal references
+		renderer.url = isIE ? '' : loc.href.replace(/#.*?$/, '')
+			.replace(/\(/g, '\\(').replace(/\)/g, '\\)'); // Page url used for internal references. #24, #672.
 		renderer.defs = this.createElement('defs').add();
 		renderer.forExport = forExport;
-		renderer.gradients = []; // Array where gradient SvgElements are stored
+		renderer.gradients = {}; // Object where gradient SvgElements are stored
 
 		renderer.setSize(width, height, false);
-
 	},
 
 	/**
@@ -821,19 +842,13 @@ SVGRenderer.prototype = {
 	 */
 	destroy: function () {
 		var renderer = this,
-			i,
-			rendererGradients = renderer.gradients,
 			rendererDefs = renderer.defs;
 		renderer.box = null;
 		renderer.boxWrapper = renderer.boxWrapper.destroy();
 
 		// Call destroy on all gradient elements
-		if (rendererGradients) { // gradients are null in VMLRenderer
-			for (i = 0; i < rendererGradients.length; i++) {
-				renderer.gradients[i] = rendererGradients[i].destroy();
-			}
-			renderer.gradients = null;
-		}
+		destroyObjectProperties(renderer.gradients || {});
+		renderer.gradients = null;
 
 		// Defs are null in VMLRenderer
 		// Otherwise, destroy them here.
@@ -1530,46 +1545,62 @@ SVGRenderer.prototype = {
 		if (color && color.linearGradient) {
 			var renderer = this,
 				linearGradient = color[LINEAR_GRADIENT],
-				relativeToShape = !linearGradient.length, // keep backwards compatibility
-				id = PREFIX + idCounter++,
+				relativeToShape = !isArray(linearGradient), // keep backwards compatibility
+				id,
+				gradients = renderer.gradients,
 				gradientObject,
+				x1 = linearGradient.x1 || linearGradient[0] || 0,
+				y1 = linearGradient.y1 || linearGradient[1] || 0,
+				x2 = linearGradient.x2 || linearGradient[2] || 0,
+				y2 = linearGradient.y2 || linearGradient[3] || 0,
 				stopColor,
-				stopOpacity;
-
-			gradientObject = renderer.createElement(LINEAR_GRADIENT)
-				.attr(extend({
-					id: id,
-					x1: linearGradient.x1 || linearGradient[0] || 0,
-					y1: linearGradient.y1 || linearGradient[1] || 0,
-					x2: linearGradient.x2 || linearGradient[2] || 0,
-					y2: linearGradient.y2 || linearGradient[3] || 0
-				}, relativeToShape ? null : { gradientUnits: 'userSpaceOnUse' }))
-				.add(renderer.defs);
-
-			// Keep a reference to the gradient object so it is possible to destroy it later
-			renderer.gradients.push(gradientObject);
-
-			// The gradient needs to keep a list of stops to be able to destroy them
-			gradientObject.stops = [];
-			each(color.stops, function (stop) {
-				var stopObject;
-				if (regexRgba.test(stop[1])) {
-					colorObject = Color(stop[1]);
-					stopColor = colorObject.get('rgb');
-					stopOpacity = colorObject.get('a');
-				} else {
-					stopColor = stop[1];
-					stopOpacity = 1;
-				}
-				stopObject = renderer.createElement('stop').attr({
-					offset: stop[0],
-					'stop-color': stopColor,
-					'stop-opacity': stopOpacity
-				}).add(gradientObject);
-
-				// Add the stop element to the gradient
-				gradientObject.stops.push(stopObject);
-			});
+				stopOpacity,
+				// Create a unique key in order to reuse gradient objects. #671.
+				key = [relativeToShape, x1, y1, x2, y2, color.stops.join(',')].join(',');
+			
+			// If the gradient with the same setup is already created, reuse it
+			if (gradients[key]) {
+				id = attr(gradients[key].element, 'id');
+			
+			// If not, create a new one and keep the reference.	
+			} else {
+				id = PREFIX + idCounter++;
+				gradientObject = renderer.createElement(LINEAR_GRADIENT)
+					.attr(extend({
+						id: id,
+						x1: x1,
+						y1: y1,
+						x2: x2,
+						y2: y2
+					}, relativeToShape ? null : { gradientUnits: 'userSpaceOnUse' }))
+					.add(renderer.defs);
+	
+				// The gradient needs to keep a list of stops to be able to destroy them
+				gradientObject.stops = [];
+				each(color.stops, function (stop) {
+					var stopObject;
+					if (regexRgba.test(stop[1])) {
+						colorObject = Color(stop[1]);
+						stopColor = colorObject.get('rgb');
+						stopOpacity = colorObject.get('a');
+					} else {
+						stopColor = stop[1];
+						stopOpacity = 1;
+					}
+					stopObject = renderer.createElement('stop').attr({
+						offset: stop[0],
+						'stop-color': stopColor,
+						'stop-opacity': stopOpacity
+					}).add(gradientObject);
+	
+					// Add the stop element to the gradient
+					gradientObject.stops.push(stopObject);
+				});
+				
+				// Keep a reference to the gradient object so it is possible to reuse it and
+				// destroy it later
+				gradients[key] = gradientObject;
+			}
 
 			return 'url(' + this.url + '#' + id + ')';
 
@@ -1819,7 +1850,7 @@ SVGRenderer.prototype = {
 				if (styles) {
 					var textStyles = {};
 					styles = merge({}, styles); // create a copy to avoid altering the original object (#537)
-					each(['fontSize', 'fontWeight', 'fontFamily', 'color', 'lineHeight'], function (prop) {
+					each(['fontSize', 'fontWeight', 'fontFamily', 'color', 'lineHeight', 'width'], function (prop) {
 						if (styles[prop] !== UNDEFINED) {
 							textStyles[prop] = styles[prop];
 							delete styles[prop];

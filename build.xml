@@ -123,6 +123,7 @@
             <file name="FlagsSeries.js"/>
             <file name="StockNavigation.js"/>
             <file name="StockChart.js"/>
+            <file name="OrdinalAxis.js"/>
             <file name="Outro.js"/>
         </filelist>
     </target>
@@ -193,14 +194,17 @@
         </jslint>
 
         <!-- Set a property that tells if there are unused variables. -->
-        <condition property="unused.variables.exists">
-            <resourcecontains resource="${build.dir}/lintreport.html" substring="Unused variable"/>
+        <condition property="lint.variable.error">
+        	<or>
+            	<resourcecontains resource="${build.dir}/lintreport.html" substring="Undefined variable"/>
+            	<resourcecontains resource="${build.dir}/lintreport.html" substring="Unused variable"/>
+            </or>
         </condition>
     </target>
 
     <!-- This target is only run if there are unused variables. -->
-    <target name="lint" depends="do-lint" if="unused.variables.exists">
-        <echo message="Warning: unused variables exists. See build/lintreport.html"/>
+    <target name="lint" depends="do-lint" if="lint.variable.error">
+        <echo message="Warning: undefined or unused variables exist. Run 'start build/lintreport.html'"/>
     </target>
 
     <!-- Runs google closure compiler and yui compressor on src. -->
@@ -420,7 +424,7 @@
         </copy>
         <!-- Make sure files in the zip have lf line endings -->
         <!-- even if being built on windows -->
-        <sleep seconds="2"/>
+        <sleep seconds="5"/>
         <fixcrlf srcdir="${dist.dir}" includes="**/*.js, **/*.html, **/*.htm, **/*.php, **/*.tsv" eol="lf"/>
 
         <!-- 5. Create zip files -->
@@ -474,8 +478,8 @@
         <!-- mootools versions -->
         <antcall target="test-specific-lib">
             <param name="testrun.type" value="unit"/>
-            <param name="testrun.name" value="mootools-1.4.1"/>
-            <param name="required.lib" value="mootools-core-1.4.1-full-nocompat.js"/>
+            <param name="testrun.name" value="mootools-1.4.3"/>
+            <param name="required.lib" value="mootools-core-1.4.3-full-nocompat.js"/>
             <param name="required.adapter" value="js/adapters/mootools-adapter.src.js"/>
         </antcall>
         <antcall target="test-specific-lib">
