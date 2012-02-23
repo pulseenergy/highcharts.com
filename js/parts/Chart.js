@@ -61,7 +61,6 @@ function Chart(options, callback) {
 		plotWidth,
 		tracker,
 		trackerGroup,
-		placeTrackerGroup,
 		legend,
 		legendWidth,
 		legendHeight,
@@ -882,7 +881,7 @@ function Chart(options, callback) {
 						}
 
 						// Adjust to threshold
-						if (threshold !== null) {
+						if (defined(threshold)) {
 							if (dataMin >= threshold) {
 								dataMin = threshold;
 								ignoreMinPadding = true;
@@ -1337,12 +1336,6 @@ function Chart(options, callback) {
 				}
 			}
 
-			// post process positions, used in ordinal axes in Highstock. 
-			// TODO: combine with getNonLinearTimeTicks
-			fireEvent(axis, 'afterSetTickPositions', {
-				tickPositions: tickPositions
-			});
-
 			if (!isLinked) {
 
 				// reset min/max or remove extremes based on start/end on tick
@@ -1467,16 +1460,21 @@ function Chart(options, callback) {
 		 * @param {Boolean} redraw
 		 * @param {Boolean|Object} animation Whether to apply animation, and optionally animation
 		 *    configuration
+		 * @param {Object} eventArguments 
 		 *
 		 */
-		function setExtremes(newMin, newMax, redraw, animation) {
+		function setExtremes(newMin, newMax, redraw, animation, eventArguments) {
 
 			redraw = pick(redraw, true); // defaults to true
-
-			fireEvent(axis, 'setExtremes', { // fire an event to enable syncing of multiple charts
+			
+			// Extend the arguments with min and max
+			eventArguments = extend(eventArguments, {
 				min: newMin,
 				max: newMax
-			}, function () { // the default event handler
+			});
+
+			// Fire the event
+			fireEvent(axis, 'setExtremes', eventArguments, function () { // the default event handler
 
 				userMin = newMin;
 				userMax = newMax;
@@ -1603,6 +1601,7 @@ function Chart(options, callback) {
 			var hasData = axis.series.length && defined(min) && defined(max),
 				showAxis = hasData || pick(options.showEmpty, true),
 				titleOffset = 0,
+				titleOffsetOption,
 				titleMargin = 0,
 				axisTitleOptions = options.title,
 				labelOptions = options.labels,
@@ -1677,6 +1676,7 @@ function Chart(options, callback) {
 				if (showAxis) {
 					titleOffset = axisTitle.getBBox()[horiz ? 'height' : 'width'];
 					titleMargin = pick(axisTitleOptions.margin, horiz ? 5 : 10);
+					titleOffsetOption = axisTitleOptions.offset;
 				}
 
 				// hide or show the title depending on whether showEmpty is set
@@ -1689,7 +1689,7 @@ function Chart(options, callback) {
 			offset = directionFactor * pick(options.offset, axisOffset[side]);
 
 			axisTitleMargin =
-				pick(axisTitleOptions.offset,
+				pick(titleOffsetOption,
 					labelOffset + titleMargin +
 					(side !== 2 && labelOffset && directionFactor * options.labels[horiz ? 'y' : 'x'])
 				);
@@ -2880,33 +2880,15 @@ function Chart(options, callback) {
 			container.onclick = container.onmousedown = container.onmousemove = container.ontouchstart = container.ontouchend = container.ontouchmove = null;
 		}
 
-		/**
-		 * Create the image map that listens for mouseovers
-		 */
-		placeTrackerGroup = function () {
-
-			// first create - plot positions is not final at this stage
-			if (!trackerGroup) {
-				chart.trackerGroup = trackerGroup = renderer.g('tracker')
-					.attr({ zIndex: 9 })
-					.add();
-
-			// then position - this happens on load and after resizing and changing
-			// axis or box positions
-			} else {
-				trackerGroup.translate(plotLeft, plotTop);
-				if (inverted) {
-					trackerGroup.attr({
-						width: chart.plotWidth,
-						height: chart.plotHeight
-					}).invert();
-				}
-			}
-		};
-
-
+		
 		// Run MouseTracker
-		placeTrackerGroup();
+		
+		if (!trackerGroup) {
+			chart.trackerGroup = trackerGroup = renderer.g('tracker')
+				.attr({ zIndex: 9 })
+				.add();
+		}
+		
 		if (options.enabled) {
 			chart.tooltip = tooltip = Tooltip(options);
 
@@ -3284,7 +3266,10 @@ function Chart(options, callback) {
 
 			if (!legendGroup) {
 				legendGroup = renderer.g('legend')
-					.attr({ zIndex: 10 }) // in front of trackers, #414
+					// #414, #759. Trackers will be drawn above the legend, but we have 
+					// to sacrifice that because tooltips need to be above the legend
+					// and trackers above tooltips
+					.attr({ zIndex: 7 }) 
 					.add();
 			}
 
@@ -3579,7 +3564,6 @@ function Chart(options, callback) {
 		// the plot areas size has changed
 		if (isDirtyBox) {
 			drawChartBox();
-			placeTrackerGroup();
 
 			// move clip rect
 			if (clipRect) {
@@ -4474,17 +4458,9 @@ function Chart(options, callback) {
 			.align(credits.position);
 		}
 
-		placeTrackerGroup();
-
 		// Set flag
 		chart.hasRendered = true;
 
-		// If the chart was rendered outside the top container, put it back in
-		if (renderToClone) {
-			renderTo.appendChild(container);
-			discardElement(renderToClone);
-			//updatePosition(container);
-		}
 	}
 
 	/**
@@ -4636,6 +4612,13 @@ function Chart(options, callback) {
 		each(chart.callbacks, function (fn) {
 			fn.apply(chart, [chart]);
 		});
+		
+		
+		// If the chart was rendered outside the top container, put it back in
+		if (renderToClone) {
+			renderTo.appendChild(container);
+			discardElement(renderToClone);
+		}
 
 		fireEvent(chart, 'load');
 

@@ -324,12 +324,13 @@ SVGElement.prototype = {
 		normalizer = mathRound(strokeWidth) % 2 / 2; // mathRound because strokeWidth can sometimes have roundoff errors
 
 		// normalize for crisp edges
-		values.x = mathFloor(x || wrapper.x || 0) + normalizer;
-		values.y = mathFloor(y || wrapper.y || 0) + normalizer;
-		values.width = mathFloor((width || wrapper.width || 0) - 2 * normalizer);
-		values.height = mathFloor((height || wrapper.height || 0) - 2 * normalizer);
+		values.x = (x || wrapper.x || 0) + normalizer;
+		values.y = (y || wrapper.y || 0) + normalizer;
+		values.width = (width || wrapper.width || 0) - 2 * normalizer;
+		values.height = (height || wrapper.height || 0) - 2 * normalizer;
+		// NOTE-CLC Removed flooring from the four lines above because snapping to integers makes the bar-chart points align disjointedly.
 		values.strokeWidth = strokeWidth;
-
+		
 		for (key in values) {
 			if (wrapper[key] !== values[key]) { // only set attribute if changed
 				wrapper[key] = attribs[key] = values[key];
@@ -998,7 +999,7 @@ SVGRenderer.prototype = {
 		renderer.boxWrapper = boxWrapper;
 		renderer.alignedObjects = [];
 		renderer.url = isIE ? '' : loc.href.replace(/#.*?$/, '')
-			.replace(/\(/g, '\\(').replace(/\)/g, '\\)'); // Page url used for internal references. #24, #672.
+			.replace(/([\('\)])/g, '\\$1'); // Page url used for internal references. #24, #672.
 		renderer.defs = this.createElement('defs').add();
 		renderer.forExport = forExport;
 		renderer.gradients = {}; // Object where gradient SvgElements are stored

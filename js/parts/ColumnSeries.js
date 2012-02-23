@@ -88,7 +88,7 @@ var ColumnSeries = extendClass(Series, {
 		// record the new values
 		each(points, function (point) {
 			var plotY = point.plotY,
-				yBottom = point.yBottom || translatedThreshold,
+				yBottom = pick(point.yBottom, translatedThreshold),
 				barX = point.plotX + pointXOffset,
 				barY = mathCeil(mathMin(plotY, yBottom)),
 				barH = mathCeil(mathMax(plotY, yBottom) - barY),
@@ -199,16 +199,9 @@ var ColumnSeries = extendClass(Series, {
 			options = series.options,
 			cursor = options.cursor,
 			css = cursor && { cursor: cursor },
-			group,
+			trackerGroup = series.drawTrackerGroup(),
 			rel;
 			
-		// Add a series specific group to allow clipping the trackers
-		if (series.isCartesian) {
-			group = renderer.g()
-				.clip(chart.clipRect)
-				.add(chart.trackerGroup);	
-		}
-
 		each(series.points, function (point) {
 			tracker = point.tracker;
 			shapeArgs = point.trackerArgs || point.shapeArgs;
@@ -223,8 +216,7 @@ var ColumnSeries = extendClass(Series, {
 						.attr({
 							isTracker: trackerLabel,
 							fill: TRACKER_FILL,
-							visibility: series.visible ? VISIBLE : HIDDEN,
-							zIndex: options.zIndex || 1
+							visibility: series.visible ? VISIBLE : HIDDEN
 						})
 						.on(hasTouch ? 'touchstart' : 'mouseover', function (event) {
 							rel = event.relatedTarget || event.fromElement;
@@ -243,7 +235,7 @@ var ColumnSeries = extendClass(Series, {
 							}
 						})
 						.css(css)
-						.add(point.group || group); // pies have point group - see issue #118
+						.add(point.group || trackerGroup); // pies have point group - see issue #118
 				}
 			}
 		});
