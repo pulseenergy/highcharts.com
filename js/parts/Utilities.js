@@ -330,17 +330,15 @@ function normalizeTickInterval(interval, multiples, magnitude, options) {
 	var normalized, i;
 
 	// round to a tenfold of 1, 2, 2.5 or 5
-	//magnitude = multiples ? 1 : math.pow(10, mathFloor(math.log(interval) / math.LN10));
 	magnitude = pick(magnitude, 1);
 	normalized = interval / magnitude;
 
 	// multiples for a linear scale
 	if (!multiples) {
 		multiples = [1, 2, 2.5, 5, 10];
-		//multiples = [1, 2, 2.5, 4, 5, 7.5, 10];
 
 		// the allowDecimals option
-		if (options && (options.allowDecimals === false || options.type === 'logarithmic')) {
+		if (options && options.allowDecimals === false) {
 			if (magnitude === 1) {
 				multiples = [1, 2, 5, 10];
 			} else if (magnitude <= 0.1) {
@@ -463,9 +461,10 @@ function getTimeTicks(normalizedInterval, min, max, startOfWeek) {
 		interval = normalizedInterval.unitRange,
 		count = normalizedInterval.count;
 
-	minDate.setMilliseconds(0);
+	
 
 	if (interval >= timeUnits[SECOND]) { // second
+		minDate.setMilliseconds(0);
 		minDate.setSeconds(interval >= timeUnits[MINUTE] ? 0 :
 			count * mathFloor(minDate.getSeconds() / count));
 	}
@@ -717,6 +716,28 @@ function discardElement(element) {
 		garbageBin.appendChild(element);
 	}
 	garbageBin.innerHTML = '';
+}
+
+/**
+ * Provide error messages for debugging, with links to online explanation 
+ */
+function error(code, stop) {
+	var msg = 'Highcharts error #' + code + ': www.highcharts.com/errors/' + code;
+	if (stop) {
+		throw msg;
+	} else if (win.console) {
+		console.log(msg);
+	}
+}
+
+/**
+ * Fix JS round off float errors
+ * @param {Number} num
+ */
+function correctFloat(num) {
+	return parseFloat(
+		num.toPrecision(14)
+	);
 }
 
 /**

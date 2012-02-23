@@ -24,6 +24,7 @@ defaultPlotOptions.flags = merge(defaultPlotOptions.column, {
 		fontWeight: 'bold',
 		textAlign: 'center'
 	},
+	threshold: null,
 	y: -30
 });
 
@@ -31,7 +32,6 @@ defaultPlotOptions.flags = merge(defaultPlotOptions.column, {
 seriesTypes.flags = extendClass(seriesTypes.column, {
 	type: 'flags',
 	noSharedTooltip: true,
-	useThreshold: false,
 	/**
 	 * Inherit the initialization from base Series
 	 */
