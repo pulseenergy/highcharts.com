@@ -2261,12 +2261,13 @@ SVGElement.prototype = {
 		normalizer = mathRound(strokeWidth) % 2 / 2; // mathRound because strokeWidth can sometimes have roundoff errors
 
 		// normalize for crisp edges
-		values.x = mathFloor(x || wrapper.x || 0) + normalizer;
-		values.y = mathFloor(y || wrapper.y || 0) + normalizer;
-		values.width = mathFloor((width || wrapper.width || 0) - 2 * normalizer);
-		values.height = mathFloor((height || wrapper.height || 0) - 2 * normalizer);
+		values.x = (x || wrapper.x || 0) + normalizer;
+		values.y = (y || wrapper.y || 0) + normalizer;
+		values.width = (width || wrapper.width || 0) - 2 * normalizer;
+		values.height = (height || wrapper.height || 0) - 2 * normalizer;
+		// NOTE-CLC Removed flooring from the four lines above because snapping to integers makes the bar-chart points align disjointedly.
 		values.strokeWidth = strokeWidth;
-
+		
 		for (key in values) {
 			if (wrapper[key] !== values[key]) { // only set attribute if changed
 				wrapper[key] = attribs[key] = values[key];
@@ -7932,14 +7933,26 @@ function Chart(options, callback) {
 				}
 			};
 
-
-			// MooTools 1.2.3 doesn't fire this in IE when using addEvent
-			container.onclick = function (e) {
+			// The click, dblclick, and contextmenu event handler
+			var click = function (e, eventType) {
 				var hoverPoint = chart.hoverPoint;
 				e = normalizeMouseEvent(e);
 
-				e.cancelBubble = true; // IE specific
-
+				if (eventType == 'contextmenu') {
+					// QUESTION-CLC Should there be a configuration option to control default action prevention?
+					// NOTE-CLC Uncomment the following to displace the browser's context menu
+					if (e.stopPropagation) {
+						e.stopPropagation();
+						e.preventDefault();
+					}
+					else {
+						e.cancelBubble = true;
+						e.returnValue = false;
+					}
+				}
+				else {
+					e.cancelBubble = true; // IE specific
+				}
 
 				if (!hasDragged) {
 					if (hoverPoint && attr(e.target, 'isTracker')) {
@@ -7955,26 +7968,37 @@ function Chart(options, callback) {
 						});
 
 						// the series click event
-						fireEvent(hoverPoint.series, 'click', extend(e, {
+						fireEvent(hoverPoint.series, eventType, extend(e, {
 							point: hoverPoint
 						}));
 
 						// the point click event
-						hoverPoint.firePointEvent('click', e);
+						hoverPoint.firePointEvent(eventType, e);
 
 					} else {
 						extend(e, getMouseCoordinates(e));
 
 						// fire a click event in the chart
 						if (isInsidePlot(e.chartX - plotLeft, e.chartY - plotTop)) {
-							fireEvent(chart, 'click', e);
+							fireEvent(chart, eventType, e);
 						}
 					}
-
-
 				}
 				// reset mouseIsDown and hasDragged
 				hasDragged = false;
+			};
+
+			// MooTools 1.2.3 doesn't fire this in IE when using addEvent
+			container.onclick = function (e) {
+				click(e, 'click');
+			};
+
+			container.ondblclick = function (e) {
+				click(e, 'dblclick');
+			};
+
+			container.oncontextmenu = function (e) {
+				return click(e, 'contextmenu');
 			};
 
 		}
@@ -14131,7 +14155,7 @@ seriesTypes.flags = extendClass(seriesTypes.column, {
 
 		// relate to a master series
 		if (onSeries) {
-			onData = onSeries.points;
+			onData = onSeries.points || [];
 			i = onData.length;
 
 			// sort the data points

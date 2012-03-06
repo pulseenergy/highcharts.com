@@ -7933,14 +7933,26 @@ function Chart(options, callback) {
 				}
 			};
 
-
-			// MooTools 1.2.3 doesn't fire this in IE when using addEvent
-			container.onclick = function (e) {
+			// The click, dblclick, and contextmenu event handler
+			var click = function (e, eventType) {
 				var hoverPoint = chart.hoverPoint;
 				e = normalizeMouseEvent(e);
 
-				e.cancelBubble = true; // IE specific
-
+				if (eventType == 'contextmenu') {
+					// QUESTION-CLC Should there be a configuration option to control default action prevention?
+					// NOTE-CLC Uncomment the following to displace the browser's context menu
+					if (e.stopPropagation) {
+						e.stopPropagation();
+						e.preventDefault();
+					}
+					else {
+						e.cancelBubble = true;
+						e.returnValue = false;
+					}
+				}
+				else {
+					e.cancelBubble = true; // IE specific
+				}
 
 				if (!hasDragged) {
 					if (hoverPoint && attr(e.target, 'isTracker')) {
@@ -7956,26 +7968,37 @@ function Chart(options, callback) {
 						});
 
 						// the series click event
-						fireEvent(hoverPoint.series, 'click', extend(e, {
+						fireEvent(hoverPoint.series, eventType, extend(e, {
 							point: hoverPoint
 						}));
 
 						// the point click event
-						hoverPoint.firePointEvent('click', e);
+						hoverPoint.firePointEvent(eventType, e);
 
 					} else {
 						extend(e, getMouseCoordinates(e));
 
 						// fire a click event in the chart
 						if (isInsidePlot(e.chartX - plotLeft, e.chartY - plotTop)) {
-							fireEvent(chart, 'click', e);
+							fireEvent(chart, eventType, e);
 						}
 					}
-
-
 				}
 				// reset mouseIsDown and hasDragged
 				hasDragged = false;
+			};
+
+			// MooTools 1.2.3 doesn't fire this in IE when using addEvent
+			container.onclick = function (e) {
+				click(e, 'click');
+			};
+
+			container.ondblclick = function (e) {
+				click(e, 'dblclick');
+			};
+
+			container.oncontextmenu = function (e) {
+				return click(e, 'contextmenu');
 			};
 
 		}
