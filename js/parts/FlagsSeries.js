@@ -71,7 +71,7 @@ seriesTypes.flags = extendClass(seriesTypes.column, {
 
 		// relate to a master series
 		if (onSeries) {
-			onData = onSeries.points;
+			onData = onSeries.points || [];
 			i = onData.length;
 
 			// sort the data points
