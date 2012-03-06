@@ -772,7 +772,7 @@ function stableSort(arr, sortFunction) {
 
 	arr.sort(function (a, b) {
 		sortValue = sortFunction(a, b);
-		return sortValue === 0 ? a.ss_i - b.ss_i : sortValue;
+		return sortValue === 0 || isNaN(sortValue) ? a.ss_i - b.ss_i : sortValue;
 	});
 
 	// Remove index from items
@@ -14248,8 +14248,8 @@ seriesTypes.flags = extendClass(seriesTypes.column, {
 			graphic = point.graphic;
 			connector = point.connector;
 
-			// only draw the point if y is defined
-			if (plotY !== UNDEFINED) {
+			// only draw the flag if y is defined and if the flag's point is not disabled.
+			if (plotY !== UNDEFINED && point.enabled !== false) {
 				// shortcuts
 				pointAttr = point.pointAttr[point.selected ? 'select' : ''];
 				if (graphic) { // update
