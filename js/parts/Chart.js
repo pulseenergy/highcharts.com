@@ -289,7 +289,76 @@ function Chart(options, callback) {
 				return label ?
 					((this.labelBBox = label.getBBox()))[horiz ? 'height' : 'width'] :
 					0;
-				},
+			},
+			
+			/**
+			 * Find how far the labels extend to the right and left of the tick's x position. Used for anti-collision
+			 * detection with overflow logic.
+			 */
+			getLabelSides: function () {
+				var bBox = this.labelBBox, // assume getLabelSize has run at this point
+					labelOptions = options.labels,
+					width = bBox.width,
+					leftSide = width * { left: 0, center: 0.5, right: 1 }[labelOptions.align] - labelOptions.x;
+					
+				return [-leftSide, width - leftSide];				
+			},
+			
+			/**
+			 * Handle the label overflow by adjusting the labels to the left and right edge, or
+			 * hide them if they collide into the neighbour label.
+			 */
+			handleOverflow: function (index) {
+				var show = true,
+					isFirst = this.isFirst,
+					isLast = this.isLast,
+					label = this.label,
+					x = label.x;
+					
+				if (isFirst || isLast) {
+					
+					var sides = this.getLabelSides(),
+						leftSide = sides[0],
+						rightSide = sides[1],
+						plotLeft = chart.plotLeft,
+						plotRight = plotLeft + axis.len,
+						neighbour = ticks[tickPositions[index + (isFirst ? 1 : -1)]],
+						neighbourEdge = neighbour && neighbour.label.x + neighbour.getLabelSides()[isFirst ? 0 : 1];
+					
+					if ((isFirst && !reversed) || (isLast && reversed)) {
+						// Is the label spilling out to the left of the plot area?
+						if (x + leftSide < plotLeft) {
+							
+							// Align it to plot left
+							x = plotLeft - leftSide;
+							
+							// Hide it if it now overlaps the neighbour label
+							if (neighbour && x + rightSide > neighbourEdge) {
+								show = false;
+							}
+						}
+										
+					} else {
+						// Is the label spilling out to the right of the plot area?
+						if (x + rightSide > plotRight) {
+							
+							// Align it to plot right
+							x = plotRight - rightSide;
+							
+							// Hide it if it now overlaps the neighbour label
+							if (neighbour && x + leftSide < neighbourEdge) {
+								show = false;
+							}
+							
+						}
+					}
+					
+					// Set the modified x position of the label
+					label.x = x;
+				}
+				return show;
+			},
+			
 			/**
 			 * Put everything in place
 			 *
@@ -318,6 +387,7 @@ function Chart(options, callback) {
 					step = labelOptions.step,
 					cHeight = (old && oldChartHeight) || chartHeight,
 					attribs,
+					show = true,
 					x,
 					y;
 
@@ -412,30 +482,43 @@ function Chart(options, callback) {
 					if (staggerLines) {
 						y += (index / (step || 1) % staggerLines) * 16;
 					}
+					
+					// Cache x and y to be able to read final position before animation
+					label.x = x;
+					label.y = y;
 
 					// apply show first and show last
 					if ((tick.isFirst && !pick(options.showFirstLabel, 1)) ||
 							(tick.isLast && !pick(options.showLastLabel, 1))) {
-						label.hide();
-					} else {
-						// show those that may have been previously hidden, either by show first/last, or by step
-						label.show();
+						show = false;
+						
+					// Handle label overflow and show or hide accordingly
+					} else if (horiz && labelOptions.overflow === 'justify' && !tick.handleOverflow(index)) {						
+						show = false;
 					}
 
 					// apply step
 					if (step && index % step) {
 						// show those indices dividable by step
+						show = false;
+					}
+					
+					// Set the new position, and show or hide
+					if (show) {
+						label[tick.isNew ? 'attr' : 'animate']({
+							x: label.x,
+							y: label.y
+						});
+						label.show();
+						tick.isNew = false;
+					} else {
 						label.hide();
 					}
-
-					label[tick.isNew ? 'attr' : 'animate']({
-						x: x,
-						y: y
-					});
 				}
 
-				tick.isNew = false;
+				
 			},
+			
 			/**
 			 * Destructor for the tick prototype
 			 */
@@ -1235,8 +1318,8 @@ function Chart(options, callback) {
 			}
 
 			if (isLog) {
-				if (!secondPass && min <= 0) {
-					error(10); // Can't plot negative values on log axis
+				if (!secondPass && mathMin(min, dataMin) <= 0) {
+					error(10, 1); // Can't plot negative values on log axis
 				}
 				min = log2lin(min);
 				max = log2lin(max);
@@ -1406,14 +1489,16 @@ function Chart(options, callback) {
 		function setScale() {
 			var type,
 				i,
-				isDirtyData;
-
+				isDirtyData,
+				isDirtyAxisLength;
+				
 			oldMin = min;
 			oldMax = max;
 			oldAxisLength = axisLength;
 
 			// set the new axisLength
 			axisLength = horiz ? axisWidth : axisHeight;
+			isDirtyAxisLength = axisLength !== oldAxisLength;
 
 			// is there new data?
 			each(axis.series, function (series) {
@@ -1424,7 +1509,7 @@ function Chart(options, callback) {
 			});
 
 			// do we really need to go through all this?
-			if (axisLength !== oldAxisLength || isDirtyData || isLinked ||
+			if (isDirtyAxisLength || isDirtyData || isLinked ||
 				userMin !== oldUserMin || userMax !== oldUserMax) {
 
 				// get data extremes if needed
@@ -1448,7 +1533,7 @@ function Chart(options, callback) {
 
 				// Mark as dirty if it is not already set to dirty and extremes have changed. #595.
 				if (!axis.isDirty) {
-					axis.isDirty = chart.isDirtyBox || min !== oldMin || max !== oldMax;
+					axis.isDirty = isDirtyAxisLength || min !== oldMin || max !== oldMax;
 				}
 			}
 		}
@@ -1740,8 +1825,13 @@ function Chart(options, callback) {
 					});
 				}
 
-				// major ticks
-				each(tickPositions, function (pos, i) {
+				// Major ticks. Pull out the first item and render it last so that
+				// we can get the position of the neighbour label. #808.
+				each(tickPositions.slice(1).concat([tickPositions[0]]), function (pos, i) {
+					
+					// Reorganize the indices
+					i = (i === tickPositions.length - 1) ? 0 : i + 1;
+					
 					// linked axes need an extra check to find out if
 					if (!isLinked || (pos >= min && pos <= max)) {
 
@@ -2335,8 +2425,10 @@ function Chart(options, callback) {
 				while (i--) {
 					axis = point.series[i ? 'yAxis' : 'xAxis'];
 					if (crosshairsOptions[i] && axis) {
-						path = axis
-							.getPlotLinePath(point[i ? 'y' : 'x'], 1);
+						path = axis.getPlotLinePath(
+							i ? pick(point.stackY, point.y) : point.x, // #814 
+							1
+						);
 						if (crosshairs[i]) {
 							crosshairs[i].attr({ d: path, visibility: VISIBLE });
 
@@ -2841,7 +2933,9 @@ function Chart(options, callback) {
 				}
 
 				if (!hasDragged) {
-					if (hoverPoint && attr(e.target, 'isTracker')) {
+					
+					// Detect clicks on trackers or tracker groups, #783 
+					if (hoverPoint && (attr(e.target, 'isTracker') || attr(e.target.parentNode, 'isTracker'))) {
 						var plotX = hoverPoint.plotX,
 							plotY = hoverPoint.plotY;
 
@@ -2958,14 +3052,16 @@ function Chart(options, callback) {
 			itemHiddenStyle = merge(itemStyle, options.itemHiddenStyle),
 			padding = options.padding || pInt(style.padding),
 			ltr = !options.rtl,
+			itemMarginTop = options.itemMarginTop || 0,
+			itemMarginBottom = options.itemMarginBottom || 0,
 			y = 18,
+			maxItemWidth = 0,
 			initialItemX = 4 + padding + symbolWidth + symbolPadding,
+			initialItemY = padding + itemMarginTop + y - 5, // 5 is the number of pixels above the text
 			itemX,
 			itemY,
 			lastItemY,
 			itemHeight = 0,
-			itemMarginTop = options.itemMarginTop || 0,
-			itemMarginBottom = options.itemMarginBottom || 0,
 			box,
 			legendBorderWidth = options.borderWidth,
 			legendBackgroundColor = options.backgroundColor,
@@ -3256,8 +3352,18 @@ function Chart(options, callback) {
 				itemX = initialItemX;
 				itemY += itemMarginTop + itemHeight + itemMarginBottom;
 			}
-			lastItemY = itemY + itemMarginBottom;
+			
+			// If the item exceeds the height, start a new column
+			if (!horizontal && itemY + options.y + itemHeight > chartHeight - spacingTop - spacingBottom) {
+				itemY = initialItemY;
+				itemX += maxItemWidth;
+				maxItemWidth = 0;
+			}
 
+			// Set the edge positions
+			maxItemWidth = mathMax(maxItemWidth, itemWidth);
+			lastItemY = mathMax(lastItemY, itemY + itemMarginBottom);
+			
 			// cache the position of the newly generated or reordered items
 			item._legendItemPos = [itemX, itemY];
 
@@ -3270,7 +3376,7 @@ function Chart(options, callback) {
 
 			// the width of the widest item
 			offsetWidth = widthOption || mathMax(
-				horizontal ? itemX - initialItemX : itemWidth,
+				(itemX - initialItemX) + (horizontal ? 0 : itemWidth),
 				offsetWidth
 			);
 
@@ -3283,7 +3389,7 @@ function Chart(options, callback) {
 		 */
 		function renderLegend() {
 			itemX = initialItemX;
-			itemY = padding + itemMarginTop + y - 5; // 5 is the number of pixels above the text
+			itemY = initialItemY;
 			offsetWidth = 0;
 			lastItemY = 0;
 
@@ -3576,8 +3682,9 @@ function Chart(options, callback) {
 			// redraw axes
 			each(axes, function (axis) {
 				fireEvent(axis, 'afterSetExtremes', axis.getExtremes()); // #747, #751					
-				if (axis.isDirty) {					
-					axis.redraw();					
+				if (axis.isDirty || isDirtyBox) {					
+					axis.redraw();
+					isDirtyBox = true; // #792
 				}
 			});
 
@@ -3813,8 +3920,7 @@ function Chart(options, callback) {
 	zoom = function (event) {
 
 		// add button to reset selection
-		var animate = chart.pointCount < 100,
-			hasZoomed;
+		var hasZoomed;
 
 		if (chart.resetZoomEnabled !== false && !chart.resetZoomButton) { // hook for Stock charts etc.
 			showResetZoom();
@@ -3842,7 +3948,9 @@ function Chart(options, callback) {
 
 		// Redraw
 		if (hasZoomed) {
-			redraw(true, animate);
+			redraw( 
+				pick(optionsChart.animation, chart.pointCount < 100) // animation
+			);
 		}
 	};
 
@@ -3911,7 +4019,7 @@ function Chart(options, callback) {
 				.attr({
 					align: chartTitleOptions.align,
 					'class': PREFIX + name,
-					zIndex: 1
+					zIndex: chartTitleOptions.zIndex || 4
 				})
 				.css(chartTitleOptions.style)
 				.add()
@@ -4132,7 +4240,7 @@ function Chart(options, callback) {
 		function reflow(e) {
 			var width = optionsChart.width || renderTo.offsetWidth,
 				height = optionsChart.height || renderTo.offsetHeight,
-				target = e.target;
+				target = e ? e.target : win; // #805 - MooTools doesn't supply e
 				
 			// Width and height checks for display:none. Target is doc in IE8 and Opera,
 			// win in Firefox, Chrome and IE9.

@@ -86,7 +86,7 @@ var VMLElementExtension = {
 		// align text after adding to be able to read offset
 		wrapper.added = true;
 		if (wrapper.alignOnAdd && !wrapper.deferUpdateTransform) {
-			wrapper.htmlUpdateTransform();
+			wrapper.updateTransform();
 		}
 
 		// fire an event for internal hooks
@@ -114,6 +114,11 @@ var VMLElementExtension = {
 			}
 		}
 	},
+
+	/**
+	 * VML always uses htmlUpdateTransform
+	 */
+	updateTransform: SVGElement.prototype.htmlUpdateTransform,
 
 	/**
 	 * Get or set attributes
@@ -304,7 +309,7 @@ var VMLElementExtension = {
 					// translation for animation
 					} else if (key === 'translateX' || key === 'translateY' || key === 'rotation') {
 						wrapper[key] = value;
-						wrapper.htmlUpdateTransform();
+						wrapper.updateTransform();
 
 						skipAttr = true;
 
@@ -634,7 +639,7 @@ VMLRendererExtension = { // inherit SVGRenderer
 				// are reversed.
 				markup = ['<fill colors="0% ', color1, ',100% ', color2, '" angle="', angle,
 					'" opacity="', opacity2, '" o:opacity2="', opacity1,
-					'" type="gradient" focus="100%" method="any" />'];
+					'" type="gradient" focus="100%" method="sigma" />'];
 				createElement(this.prepVML(markup), null, null, elem);
 			
 			// Gradients are not supported for VML stroke, return the first color. #722.
@@ -817,7 +822,7 @@ VMLRendererExtension = { // inherit SVGRenderer
 				sinEnd = mathSin(end),
 				innerRadius = options.innerR,
 				circleCorrection = 0.08 / radius, // #760
-				innerCorrection = (innerRadius && 0.1 / innerRadius) || 0;
+				innerCorrection = (innerRadius && 0.25 / innerRadius) || 0;
 
 			if (end - start === 0) { // no angle, don't show it.
 				return ['x'];

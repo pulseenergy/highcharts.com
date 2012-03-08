@@ -223,29 +223,37 @@ Point.prototype = {
 			split = String(point.y).split('.'),
 			originalDecimals = split[1] ? split[1].length : 0,
 			match = pointFormat.match(/\{(series|point)\.[a-zA-Z]+\}/g),
-			splitter = /[\.}]/,
+			splitter = /[{\.}]/,
 			obj,
 			key,
 			replacement,
+			parts,
+			prop,
 			i;
 
 		// loop over the variables defined on the form {series.name}, {point.y} etc
 		for (i in match) {
 			key = match[i];
-			
-			if (isString(key) && key !== pointFormat) { // IE matches more than just the variables 
-				obj = key.indexOf('point') === 1 ? point : series;
+			if (isString(key) && key !== pointFormat) { // IE matches more than just the variables
 				
-				if (key === '{point.y}') { // add some preformatting 
+				// Split it further into parts
+				parts = (' ' + key).split(splitter); // add empty string because IE and the rest handles it differently
+				obj = { 'point': point, 'series': series }[parts[1]];
+				prop = parts[2];
+				
+				// Add some preformatting
+				if (obj === point && (prop === 'y' || prop === 'open' || prop === 'high' || 
+						prop === 'low' || prop === 'close')) { 
 					replacement = (seriesTooltipOptions.valuePrefix || seriesTooltipOptions.yPrefix || '') + 
-						numberFormat(point.y, pick(seriesTooltipOptions.valueDecimals, seriesTooltipOptions.yDecimals, originalDecimals)) +
+						numberFormat(point[prop], pick(seriesTooltipOptions.valueDecimals, seriesTooltipOptions.yDecimals, originalDecimals)) +
 						(seriesTooltipOptions.valueSuffix || seriesTooltipOptions.ySuffix || '');
 				
-				} else { // automatic replacement
-					replacement = obj[match[i].split(splitter)[1]];
+				// Automatic replacement
+				} else {
+					replacement = obj[prop];
 				}
 				
-				pointFormat = pointFormat.replace(match[i], replacement);
+				pointFormat = pointFormat.replace(key, replacement);
 			}
 		}
 		
@@ -741,15 +749,19 @@ Series.prototype = {
 
 		setAnimation(animation, chart);
 
-		if (graph && shift) { // make graph animate sideways
+		// Make graph animate sideways
+		if (graph && shift) { 
 			graph.shift = currentShift + 1;
 		}
 		if (area) {
-			area.shift = currentShift + 1;
-			area.isArea = true;
+			if (shift) { // #780
+				area.shift = currentShift + 1;
+			}
+			area.isArea = true; // needed in animation, both with and without shift
 		}
+		
+		// Optional redraw, defaults to true
 		redraw = pick(redraw, true);
-
 
 		// Get options and push the point to xData, yData and series.options. In series.generatePoints
 		// the Point instance will be created on demand and pushed to the series.data array.
@@ -983,7 +995,7 @@ Series.prototype = {
 		// Find the closest distance between processed points
 		for (i = processedXData.length - 1; i > 0; i--) {
 			distance = processedXData[i] - processedXData[i - 1];
-			if (closestPointRange === UNDEFINED || distance < closestPointRange) {
+			if (distance > 0 && (closestPointRange === UNDEFINED || distance < closestPointRange)) {
 				closestPointRange = distance;
 			}
 		}
@@ -1124,6 +1136,7 @@ Series.prototype = {
 
 				point.percentage = pointStackTotal ? point.y * 100 / pointStackTotal : 0;
 				point.stackTotal = pointStackTotal;
+				point.stackY = yValue;
 			}
 
 			// Set translated yBottom or remove it
@@ -1136,10 +1149,10 @@ Series.prototype = {
 				yValue = series.modifyValue(yValue, point);
 			}
 
-			// set the y value
-			if (yValue !== null) {
-				point.plotY = mathRound(yAxis.translate(yValue, 0, 1, 0, 1) * 10) / 10; // Math.round fixes #591
-			}
+			// Set the the plotY value, reset it for redraws
+			point.plotY = (typeof yValue === 'number') ? 
+				mathRound(yAxis.translate(yValue, 0, 1, 0, 1) * 10) / 10 : // Math.round fixes #591
+				UNDEFINED;
 
 			// set client related positions for mouse tracking
 			point.clientX = chart.inverted ?
@@ -1692,7 +1705,7 @@ Series.prototype = {
 					str = options.formatter.call(point.getLabelConfig(), options);
 					
 					var barX = point.barX,
-						plotX = (barX && barX + point.barW / 2) || point.plotX || -999,
+						plotX = (barX && barX + point.barW / 2) || pick(point.plotX, -999),
 						plotY = pick(point.plotY, -999),
 						align = options.align,
 						individualYDelta = yIsNull ? (point.y >= 0 ? -6 : 12) : options.y;
@@ -1719,7 +1732,7 @@ Series.prototype = {
 					if (dataLabel) {
 						// vertically centered
 						if (inverted && !options.y) {
-							y = y + pInt(dataLabel.styles.lineHeight) * 0.9 - dataLabel.getBBox().height / 2;
+							y = y + pInt(options.style.lineHeight) * 0.9 - dataLabel.getBBox().height / 2;
 						}
 						dataLabel
 							.attr({
@@ -1730,23 +1743,33 @@ Series.prototype = {
 							});
 					// create new label
 					} else if (defined(str)) {
-						dataLabel = point.dataLabel = renderer.text(
+						dataLabel = point.dataLabel = renderer.label(
 							str,
 							x,
 							y,
-							options.useHTML
+							null,
+							null,
+							null,
+							options.useHTML,
+							true // baseline for backwards compat
 						)
 						.attr({
 							align: align,
+							fill: options.backgroundColor,
+							stroke: options.borderColor,
+							'stroke-width': options.borderWidth,
+							r: options.borderRadius,
 							rotation: options.rotation,
+							padding: options.padding,
 							zIndex: 1
 						})
 						.css(options.style)
-						.add(dataLabelsGroup);
+						.add(dataLabelsGroup)
+						.shadow(options.shadow);
 						// vertically centered
 						if (inverted && !options.y) {
 							dataLabel.attr({
-								y: y + pInt(dataLabel.styles.lineHeight) * 0.9 - dataLabel.getBBox().height / 2
+								y: y + pInt(options.style.lineHeight) * 0.9 - dataLabel.getBBox().height / 2
 							});
 						}
 					}
@@ -1990,9 +2013,6 @@ Series.prototype = {
 		if (!series.group) {
 			group = series.group = renderer.g('series');
 
-			if (doClip) {
-				group.clip(clipRect);
-			}
 			group.attr({
 					visibility: series.visible ? VISIBLE : HIDDEN,
 					zIndex: options.zIndex
@@ -2028,6 +2048,15 @@ Series.prototype = {
 		if (chart.inverted) {
 			series.invertGroups();
 		}
+		
+		// Do the initial clipping. This must be done after inverting for VML.
+		if (doClip && !series.hasRendered) {
+			group.clip(clipRect);
+			if (series.trackerGroup) {
+				series.trackerGroup.clip(chart.clipRect);
+			}
+		}
+			
 
 		// run the animation
 		if (doAnimation) {
@@ -2048,7 +2077,7 @@ Series.prototype = {
 
 		series.isDirty = series.isDirtyData = false; // means data is in accordance with what you see
 		// (See #322) series.isDirty = series.isDirtyData = false; // means data is in accordance with what you see
-
+		series.hasRendered = true;
 	},
 
 	/**
@@ -2237,7 +2266,6 @@ Series.prototype = {
 					.attr({
 						zIndex: this.options.zIndex || 1
 					})
-					.clip(chart.clipRect)
 					.add(chart.trackerGroup);
 					
 			}

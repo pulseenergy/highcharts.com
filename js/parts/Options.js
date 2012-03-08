@@ -153,6 +153,12 @@ defaultOptions = {
 				formatter: function () {
 					return this.y;
 				}
+				// backgroundColor: undefined, // docs - http://jsfiddle.net/highcharts/rAwN5/
+				// borderColor: undefined, // docs
+				// borderRadius: undefined, // docs
+				// borderWidth: undefined, // docs
+				// padding: 3, // docs
+				// shadow: false // docs
 			}),
 			cropThreshold: 300, // draw points outside the plot area when the number of points is less than this
 			pointRange: 0,
@@ -433,7 +439,8 @@ defaultBottomAxisOptions = { // horizontal axis
 	labels: {
 		align: 'center',
 		x: 0,
-		y: 14
+		y: 14,
+		overflow: 'justify' // docs
 		// staggerLines: null
 	},
 	title: {
@@ -442,7 +449,8 @@ defaultBottomAxisOptions = { // horizontal axis
 },
 defaultTopAxisOptions = merge(defaultBottomAxisOptions, {
 	labels: {
-		y: -5
+		y: -5,
+		overflow: 'justify'
 		// staggerLines: null
 	}
 });
