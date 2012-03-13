@@ -4136,7 +4136,7 @@ if (!hasSVG && !useCanVG) {
 /**
  * The VML element wrapper.
  */
-var VMLElementExtension = {
+var VMLElement = {
 
 	/**
 	 * Initialize a new VML element wrapper. It builds the markup as a string
@@ -4297,7 +4297,6 @@ var VMLElementExtension = {
 						// check all the others only once for each call to an element's
 						// .attr() method
 						if (!hasSetSymbolSize) {
-
 							wrapper.symbolAttr(hash);
 
 							hasSetSymbolSize = true;
@@ -4593,13 +4592,13 @@ var VMLElementExtension = {
 		return this;
 
 	}
-},
-VMLElement = extendClass(SVGElement, VMLElementExtension),
+};
+VMLElement = extendClass(SVGElement, VMLElement);
 
 /**
  * The VML renderer
  */
-VMLRendererExtension = { // inherit SVGRenderer
+var VMLRendererExtension = { // inherit SVGRenderer
 
 	Element: VMLElement,
 	isIE8: userAgent.indexOf('MSIE 8.0') > -1,
@@ -5146,14 +5145,15 @@ Renderer = VMLRenderer || CanVGRenderer || SVGRenderer;
  * @param {Object} options
  * @param {Function} callback Function to run when the chart has loaded
  */
-function Chart(options, callback) {
+function Chart(userOptions, callback) {
 
 	// Handle regular options
-	var seriesOptions = options.series; // skip merging data points to increase performance
-	options.series = null;
-	options = merge(defaultOptions, options); // do the merge
-	options.series = seriesOptions; // set back the series data
-
+	var options,
+		seriesOptions = userOptions.series; // skip merging data points to increase performance
+	userOptions.series = null;
+	options = merge(defaultOptions, userOptions); // do the merge
+	options.series = userOptions.series = seriesOptions; // set back the series data
+	
 	var optionsChart = options.chart,
 		optionsMargin = optionsChart.margin,
 		margin = isObject(optionsMargin) ?
@@ -6705,6 +6705,9 @@ function Chart(options, callback) {
 
 				userMin = newMin;
 				userMax = newMax;
+				
+				// Mark for running afterSetExtremes
+				axis.isDirtyExtremes = true;
 				
 				// redraw
 				if (redraw) {
@@ -8823,7 +8826,13 @@ function Chart(options, callback) {
 
 			// redraw axes
 			each(axes, function (axis) {
-				fireEvent(axis, 'afterSetExtremes', axis.getExtremes()); // #747, #751					
+				
+				// Fire 'afterSetExtremes' only if extremes are set
+				if (axis.isDirtyExtremes) { // #821
+					axis.isDirtyExtremes = false;
+					fireEvent(axis, 'afterSetExtremes', axis.getExtremes()); // #747, #751
+				}
+								
 				if (axis.isDirty || isDirtyBox) {					
 					axis.redraw();
 					isDirtyBox = true; // #792
@@ -10433,7 +10442,7 @@ Point.prototype = {
 
 		// apply hover styles to the existing point
 		if (point.graphic) {
-			radius = point.graphic.symbolName && pointAttr[state].r;
+			radius = markerOptions && point.graphic.symbolName && pointAttr[state].r;
 			point.graphic.attr(merge(
 				pointAttr[state],
 				radius ? { // new symbol attributes (#507, #612)
@@ -11632,7 +11641,8 @@ Series.prototype = {
 				isBarLike = seriesType === 'column' || seriesType === 'bar',
 				vAlignIsNull = options.verticalAlign === null,
 				yIsNull = options.y === null,
-				dataLabel;
+				dataLabel,
+				enabled;
 
 			if (isBarLike) {
 				if (stacking) {
@@ -11680,27 +11690,31 @@ Series.prototype = {
 				if (pointOptions && pointOptions.dataLabels) {
 					options = merge(options, pointOptions.dataLabels);
 				}
+				enabled = options.enabled;
 				
-				// If the point is outside the plot area, destroy it. #678
-				if (dataLabel && series.isCartesian && !chart.isInsidePlot(point.plotX, point.plotY)) {
+				// Get the positions
+				if (enabled) {
+					var plotX = (point.barX && point.barX + point.barW / 2) || pick(point.plotX, -999),
+						plotY = pick(point.plotY, -999),
+						individualYDelta = yIsNull ? (point.y >= 0 ? -6 : 12) : options.y;
+					
+					x = (inverted ? chart.plotWidth - plotY : plotX) + options.x;
+					y = (inverted ? chart.plotHeight - plotX : plotY) + individualYDelta;
+					
+				}
+				
+				// If the point is outside the plot area, destroy it. #678, #820
+				if (dataLabel && series.isCartesian && (!chart.isInsidePlot(x, y) || !enabled)) {
 					point.dataLabel = dataLabel.destroy();
 				
 				// Individual labels are disabled if the are explicitly disabled 
 				// in the point options, or if they fall outside the plot area.
-				} else if (options.enabled) {
+				} else if (enabled) {
+					
+					var align = options.align;
 				
 					// Get the string
 					str = options.formatter.call(point.getLabelConfig(), options);
-					
-					var barX = point.barX,
-						plotX = (barX && barX + point.barW / 2) || pick(point.plotX, -999),
-						plotY = pick(point.plotY, -999),
-						align = options.align,
-						individualYDelta = yIsNull ? (point.y >= 0 ? -6 : 12) : options.y;
-	
-					// Postprocess the positions
-					x = (inverted ? chart.plotWidth - plotY : plotX) + options.x;
-					y = (inverted ? chart.plotHeight - plotX : plotY) + individualYDelta;
 					
 					// in columns, align the string to the column
 					if (seriesType === 'column') {
@@ -11763,7 +11777,8 @@ Series.prototype = {
 					}
 	
 					if (isBarLike && seriesOptions.stacking && dataLabel) {
-						var barY = point.barY,
+						var barX = point.barX,
+							barY = point.barY,
 							barW = point.barW,
 							barH = point.barH;
 	
@@ -14310,21 +14325,19 @@ seriesTypes.flags = extendClass(seriesTypes.column, {
 			chart = series.chart,
 			points = series.points,
 			cursor = points.length - 1,
-			i,
 			point,
 			lastPoint,
 			optionsOnSeries = options.onSeries,
 			onSeries = optionsOnSeries && chart.get(optionsOnSeries),
 			step = onSeries && onSeries.options.step,
-			onData,
+			onData = onSeries && onSeries.points,
+			i = onData && onData.length,
 			leftPoint,
 			lastX,
 			rightPoint;
 
-
 		// relate to a master series
-		if (onSeries) {
-			onData = onSeries.points || [];
+		if (onSeries && onSeries.visible && i) {
 			lastX = onData[i - 1].x;
 
 			// sort the data points
@@ -14353,7 +14366,6 @@ seriesTypes.flags = extendClass(seriesTypes.column, {
 							}
 						}
 					}
-					
 					cursor--;
 					i++; // check again for points in the same x position
 					if (cursor < 0) {
@@ -14365,8 +14377,8 @@ seriesTypes.flags = extendClass(seriesTypes.column, {
 
 		each(points, function (point, i) {
 			// place on y axis or custom position
-			if (!onSeries) {
-				point.plotY = point.y === UNDEFINED ? chart.plotHeight : point.plotY;
+			if (point.plotY === UNDEFINED) { // either on axis, outside series range or hidden series
+				point.plotY = chart.plotHeight;
 			}
 			// if multiple flags appear at the same x, order them into a stack
 			lastPoint = points[i - 1];
@@ -14376,7 +14388,7 @@ seriesTypes.flags = extendClass(seriesTypes.column, {
 				}
 				point.stackIndex = lastPoint.stackIndex + 1;
 			}
-
+					
 		});
 
 
@@ -15151,7 +15163,7 @@ Highcharts.Scroller = function (chart) {
 
 		// detect whether to move the range
 		stickToMax = baseMax >= navXData[navXData.length - 1];
-		stickToMin = baseMin <= navXData[0];
+		stickToMin = baseMin <= baseDataMin;
 
 		// set the navigator series data to the new data of the base series
 		if (!navigatorData) {
