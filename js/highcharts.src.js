@@ -369,22 +369,22 @@ function numberFormat(number, decimals, decPoint, thousandsSep) {
 }
 
 /**
+ * Pad a string to a given length by adding 0 to the beginning
+ * @param {Number} number
+ * @param {Number} length
+ */
+function pad(number, length) {
+	// Create an array of the remaining length +1 and join it with 0's
+	return new Array((length || 2) + 1 - String(number).length).join(0) + number;
+}
+
+/**
  * Based on http://www.php.net/manual/en/function.strftime.php
  * @param {String} format
  * @param {Number} timestamp
  * @param {Boolean} capitalize
  */
 dateFormat = function (format, timestamp, capitalize) {
-	function pad(number, length) {
-		// two digits
-		number = number.toString().replace(/^([0-9])$/, '0$1');
-		// three digits
-		if (length === 3) {
-			number = number.toString().replace(/^([0-9]{2})$/, '0$1');
-		}
-		return number;
-	}
-
 	if (!defined(timestamp) || isNaN(timestamp)) {
 		return 'Invalid date';
 	}
@@ -440,7 +440,7 @@ dateFormat = function (format, timestamp, capitalize) {
 			'p': hours < 12 ? 'AM' : 'PM', // Upper case AM or PM
 			'P': hours < 12 ? 'am' : 'pm', // Lower case AM or PM
 			'S': pad(date.getSeconds()), // Two digits seconds, 00 through  59
-			'L': pad(timestamp % 1000, 3) // Milliseconds (naming from Ruby)
+			'L': pad(mathRound(timestamp % 1000), 3) // Milliseconds (naming from Ruby)
 		};
 
 
@@ -4047,15 +4047,15 @@ SVGRenderer.prototype = {
 
 		// rename attributes
 		attrSetters.x = function (value) {
-			wrapperX = value;
-			wrapperX -= { left: 0, center: 0.5, right: 1 }[align] * ((width || bBox.width) + padding);
-
-			wrapper.attr('translateX', mathRound(wrapperX));
+			value -= { left: 0, center: 0.5, right: 1 }[align] * ((width || bBox.width) + padding);
+			wrapperX = wrapper.x = mathRound(value); // wrapper.x is for animation getter
+			
+			wrapper.attr('translateX', wrapperX);
 			return false;
 		};
 		attrSetters.y = function (value) {
-			wrapperY = value;
-			wrapper.attr('translateY', mathRound(value));
+			wrapperY = wrapper.y = mathRound(value);
+			wrapper.attr('translateY', value);
 			return false;
 		};
 
@@ -5635,7 +5635,7 @@ function Chart(userOptions, callback) {
 						show = false;
 						
 					// Handle label overflow and show or hide accordingly
-					} else if (horiz && labelOptions.overflow === 'justify' && !tick.handleOverflow(index)) {						
+					} else if (!staggerLines && horiz && labelOptions.overflow === 'justify' && !tick.handleOverflow(index)) {						
 						show = false;
 					}
 
@@ -6916,7 +6916,7 @@ function Chart(userOptions, callback) {
 			}
 
 			// handle automatic or user set offset
-			offset = directionFactor * pick(options.offset, axisOffset[side]);
+			offset = directionFactor * pick(options.offset, axisOffset[side]); // docs
 
 			axisTitleMargin =
 				pick(titleOffsetOption,
@@ -10494,6 +10494,7 @@ Series.prototype = {
 	isCartesian: true,
 	type: 'line',
 	pointClass: Point,
+	sorted: true, // requires the data to be sorted
 	pointAttrToOptions: { // mapping between SVG attributes and the corresponding options
 		stroke: 'lineColor',
 		'stroke-width': 'lineWidth',
@@ -10938,7 +10939,7 @@ Series.prototype = {
 		}
 
 		// optionally filter out points outside the plot area
-		if (isCartesian && (!cropThreshold || dataLength > cropThreshold || series.forceCrop)) {
+		if (isCartesian && series.sorted && (!cropThreshold || dataLength > cropThreshold || series.forceCrop)) {
 			var extremes = xAxis.getExtremes(),
 				min = extremes.min,
 				max = extremes.max;
@@ -12789,7 +12790,7 @@ seriesTypes.bar = BarSeries;
  */
 var ScatterSeries = extendClass(Series, {
 	type: 'scatter',
-
+	sorted: false,
 	/**
 	 * Extend the base Series' translate method by adding shape type and
 	 * arguments for the point trackers
