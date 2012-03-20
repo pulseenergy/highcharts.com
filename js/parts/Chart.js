@@ -2650,10 +2650,9 @@ function Chart(options, callback) {
 		function setDOMEvents() {
 			var lastWasOutsidePlot = true;
 
-			// The mousedown event handler
-			var mouseDown = function (e, eventType) {
+			var fireEvents = function (e, eventType) {
 				var hoverPoint = chart.hoverPoint;
-				// Detect clicks on trackers or tracker groups, #783 
+				// Detect clicks on trackers or tracker groups, #783
 				if (hoverPoint && (attr(e.target, 'isTracker') || attr(e.target.parentNode, 'isTracker'))) {
 					var plotX = hoverPoint.plotX,
 						plotY = hoverPoint.plotY;
@@ -2666,12 +2665,12 @@ function Chart(options, callback) {
 							(inverted ? plotHeight - plotX : plotY)
 					});
 
-					// the series click event
+					// the series event
 					fireEvent(hoverPoint.series, eventType, extend(e, {
 						point: hoverPoint
 					}));
 
-					// the point click event
+					// the point event
 					hoverPoint.firePointEvent(eventType, e);
 
 				} else {
@@ -2701,7 +2700,6 @@ function Chart(options, callback) {
 				mouseDownY = e.chartY;
 
 				addEvent(doc, hasTouch ? 'touchend' : 'mouseup', drop);
-				mouseDown(e, 'mousedown');
 			};
 
 			// The mousemove, touchmove and touchstart event handler
@@ -2860,18 +2858,18 @@ function Chart(options, callback) {
 				}
 			};
 
-			// MooTools 1.2.3 doesn't fire this in IE when using addEvent
-			var click = function (e, eventType) {
+			var handleEvent = function (e, eventType) {
 				e = normalizeMouseEvent(e);
 				if (!hasDragged) {
-					mouseDown(e, eventType);
+					fireEvents(e, eventType);
 				}
 			};
+			// MooTools 1.2.3 doesn't fire this in IE when using addEvent
 			container.onclick = function (e) {
-				click(e, 'click');
+				handleEvent(e, 'click');
 			};
-			container.ondblclick = function (e) {
-				click(e, 'dblclick');
+			container.onmouseup = function (e) {
+				handleEvent(e, 'mouseup');
 			};
 		}
 
