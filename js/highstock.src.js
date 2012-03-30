@@ -6270,15 +6270,12 @@ function Chart(options, callback) {
 				loopLength,
 				minArgs,
 				maxArgs;
-				
+
 			// Set the automatic minimum range based on the closest point distance
-			if (isXAxis && minRange === UNDEFINED && !isLog) {
-				
+			if (isXAxis && minRange !== null && !isLog) {
 				if (defined(options.min) || defined(options.max)) {
-					minRange = null; // don't do this again
-
+					minRange = null; // cancel further calculation of minRange
 				} else {
-
 					// Find the closest distance between raw data points, as opposed to
 					// closestPointRange that applies to processed points (cropped and grouped)
 					each(axis.series, function (series) {
