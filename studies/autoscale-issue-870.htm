@@ -1,0 +1,118 @@
+<!DOCTYPE HTML>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>Highcharts Example</title>
+
+		<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
+		<script type="text/javascript">
+$(document).ready(function() {
+    Highcharts.setOptions({
+        global: {
+            useUTC: false
+        }
+    });
+    var defaultOptions = {
+        chart: {
+            type: "line"
+        },
+        legend: {
+            enabled: false
+        },
+        xAxis: {
+            title: {
+                text: ""
+            },
+            dateTimeLabelFormats: {
+                second: "%l:%M:%S%P",
+                minute: "%l:%M%P",
+                hour: "%l:%M%P",
+                day: "%b %e",
+                week: "%b %e",
+                month: "%b %y",
+                year: "%Y"
+            },
+            type: 'datetime'
+        },
+        yAxis: [{
+            title: {
+                text: "Waste (t)"
+            }}],
+        series: []
+    };
+
+    function checkExtremes(chart) {
+        var xAxis = chart.xAxis[0];
+        var extremes = xAxis.getExtremes();
+        var minMargin = extremes.dataMin - extremes.min;
+        var maxMargin = extremes.max - extremes.dataMax;
+        if (xAxis.tickInterval > 0.001) {
+            if (minMargin > xAxis.tickInterval) {
+                console.error("min margin was " + minMargin / 3600000 + " hours, but wanted within " + xAxis.tickInterval / 3600000 + " hours");
+            }
+            if (maxMargin > xAxis.tickInterval) {
+                console.error("max margin was " + maxMargin / 3600000 + " hours, but wanted within " + xAxis.tickInterval / 3600000 + " hours");
+            }
+        }
+    }
+
+    var options0 = $.extend(true, {}, defaultOptions, {
+        chart: {
+            renderTo: "container0"
+        },
+        title: {
+            text: "Day Time-Frame"
+        },
+        subtitle: {
+            text: "With manipulation from week time-frame"
+        }
+    });
+    var wasteData0 = [[1281571200000, 0.2], [1281657600000, 0.03], [1281744000000, 0.4],
+                                      [1281830400000, 0.08], [1281916800000, 0.2], [1282003200000, 0.2],
+                                      [1282089600000, 1.0]];
+    var wasteData1 = [[1282089600000, 1.0], [1282176000000, 2.2]];
+    var wasteSeries0 = {
+        "name": "Grandview waste",
+        "data": wasteData0,
+        "id": "series0",
+        "yAxis": 0
+    };
+    var wasteSeries1 = {
+        "name": "Grandview waste",
+        "data": wasteData1,
+        "id": "series0",
+        "yAxis": 0
+    };
+
+    options0.series.push(wasteSeries0);
+    var chart0 = new Highcharts.Chart(options0);
+    //chart0.get("series0").setData(wasteData1);
+	chart0.get("series0").remove();
+	chart0.addSeries(wasteSeries1);
+    checkExtremes(chart0);
+
+    var options1 = $.extend(true, {}, defaultOptions, {
+        chart: {
+            renderTo: "container1"
+        },
+        title: {
+            text: "Day Time-Frame"
+        },
+        subtitle: {
+            text: "With no time-frame manipulation"
+        }
+    });
+    options1.series.push(wasteSeries1);
+    var chart1 = new Highcharts.Chart(options1);
+    checkExtremes(chart1);
+});
+		</script>
+	</head>
+	<body>
+		<script type="text/javascript" src="../js/highcharts.src.js"></script>
+		<p>Expected: auto-scaling achieves the same result in either case.<br>
+			Please see assertions applied by the checkExtremes function.</p>
+		<div id="container0" style="min-width: 400px; height: 400px; margin: 0 auto"></div>
+		<div id="container1" style="min-width: 400px; height: 400px; margin: 0 auto"></div>​
+	</body>
+</html>
