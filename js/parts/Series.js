@@ -1200,8 +1200,15 @@ Series.prototype = {
 			point = points[i];
 			low = points[i - 1] ? points[i - 1]._high + 1 : 0;
 			high = point._high = points[i + 1] ?
-				(mathFloor((point.plotX + (points[i + 1] ? points[i + 1].plotX : plotSize)) / 2)) :
+				mathFloor((point.plotX + points[i + 1].plotX) / 2) :
 				plotSize;
+
+			if (low < 0) {
+				low = 0;
+			}
+			if (high > plotSize) {
+				high = plotSize;
+			}
 
 			while (low <= high) {
 				tooltipPoints[inverted ? plotSize - low++ : low++] = point;
