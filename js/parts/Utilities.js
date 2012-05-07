@@ -213,6 +213,18 @@ function extendClass(parent, members) {
 }
 
 /**
+ * How many decimals are there in a number
+ */
+function getDecimals(number) {
+	
+	number = (number || 0).toString();
+	
+	return number.indexOf('.') > -1 ? 
+		number.split('.')[1].length :
+		0;
+}
+
+/**
  * Format a number and return a string based on input settings
  * @param {Number} number The input number to format
  * @param {Number} decimals The amount of decimals
@@ -223,7 +235,9 @@ function numberFormat(number, decimals, decPoint, thousandsSep) {
 	var lang = defaultOptions.lang,
 		// http://kevin.vanzonneveld.net/techblog/article/javascript_equivalent_for_phps_number_format/
 		n = number,
-		c = isNaN(decimals = mathAbs(decimals)) ? 2 : decimals,
+		c = decimals === -1 ?
+			getDecimals(number) :
+			(isNaN(decimals = mathAbs(decimals)) ? 2 : decimals),
 		d = decPoint === undefined ? lang.decimalPoint : decPoint,
 		t = thousandsSep === undefined ? lang.thousandsSep : thousandsSep,
 		s = n < 0 ? "-" : "",
@@ -581,46 +595,6 @@ ChartCounters.prototype =  {
 	}
 };
 
-/**
- * Utility method extracted from Tooltip code that places a tooltip in a chart without spilling over
- * and not covering the point it self.
- */
-function placeBox(boxWidth, boxHeight, outerLeft, outerTop, outerWidth, outerHeight, point, distance, preferRight) {
-	
-	// keep the box within the chart area
-	var pointX = point.x,
-		pointY = point.y,
-		x = pointX + outerLeft + (preferRight ? distance : -boxWidth - distance),
-		y = pointY - boxHeight + outerTop + 15, // 15 means the point is 15 pixels up from the bottom of the tooltip
-		alignedRight;
-
-	// it is too far to the left, adjust it
-	if (x < 7) {
-		x = outerLeft + pointX + distance;
-	}
-
-	// Test to see if the tooltip is too far to the right,
-	// if it is, move it back to be inside and then up to not cover the point.
-	if ((x + boxWidth) > (outerLeft + outerWidth)) {
-		x -= (x + boxWidth) - (outerLeft + outerWidth);
-		y = pointY - boxHeight + outerTop - distance;
-		alignedRight = true;
-	}
-
-	// if it is now above the plot area, align it to the top of the plot area
-	if (y < outerTop + 5) {
-		y = outerTop + 5;
-
-		// If the tooltip is still covering the point, move it below instead
-		if (alignedRight && pointY >= y && pointY <= (y + boxHeight)) {
-			y = pointY + outerTop + distance; // below
-		}
-	} else if (y + boxHeight > outerTop + outerHeight) {
-		y = outerTop + outerHeight - boxHeight - distance; // below
-	}
-
-	return {x: x, y: y};
-}
 
 /**
  * Utility method that sorts an object array and keeping the order of equal items.
@@ -685,12 +659,14 @@ function arrayMax(data) {
  * Utility method that destroys any SVGElement or VMLElement that are properties on the given object.
  * It loops all properties and invokes destroy if there is a destroy method. The property is
  * then delete'ed.
+ * @param {Object} The object to destroy properties on
+ * @param {Object} Exception, do not destroy this property, only delete it.
  */
-function destroyObjectProperties(obj) {
+function destroyObjectProperties(obj, except) {
 	var n;
 	for (n in obj) {
 		// If the object is non-null and destroy is defined
-		if (obj[n] && obj[n].destroy) {
+		if (obj[n] && obj[n] !== except && obj[n].destroy) {
 			// Invoke the destroy
 			obj[n].destroy();
 		}

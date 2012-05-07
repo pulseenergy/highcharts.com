@@ -33,7 +33,7 @@ var VMLElement = {
 
 		// divs and shapes need size
 		if (nodeName === 'shape' || nodeName === DIV) {
-			style.push('left:0;top:0;width:10px;height:10px;');
+			style.push('left:0;top:0;width:1px;height:1px;');
 		}
 		if (docMode8) {
 			style.push('visibility: ', nodeName === DIV ? HIDDEN : VISIBLE);
@@ -304,6 +304,10 @@ var VMLElement = {
 
 							key = 'fillcolor';
 						}
+						
+					// rotation on VML elements
+					} else if (nodeName === 'shape' && key === 'rotation') {
+						wrapper[key] = value;
 
 					// translation for animation
 					} else if (key === 'translateX' || key === 'translateY' || key === 'rotation') {
@@ -350,13 +354,21 @@ var VMLElement = {
 	 */
 	clip: function (clipRect) {
 		var wrapper = this,
-			clipMembers = clipRect.members;
+			clipMembers = clipRect.members,
+			element = wrapper.element,
+			parentNode = element.parentNode;
 
 		clipMembers.push(wrapper);
 		wrapper.destroyClip = function () {
 			erase(clipMembers, wrapper);
 		};
-		return wrapper.css(clipRect.getCSS(wrapper.inverted));
+		
+		// Issue #863 workaround - related to #140, #61, #74
+		if (parentNode && parentNode.className === 'highcharts-tracker' && !docMode8) {
+			css(element, { visibility: HIDDEN });
+		}
+		
+		return wrapper.css(clipRect.getCSS(wrapper));
 	},
 
 	/**
@@ -444,7 +456,7 @@ var VMLElement = {
 			for (i = 1; i <= 3; i++) {
 				markup = ['<shape isShadow="true" strokeweight="', (7 - 2 * i),
 					'" filled="false" path="', path,
-					'" coordsize="100,100" style="', element.style.cssText, '" />'];
+					'" coordsize="10 10" style="', element.style.cssText, '" />'];
 				shadow = createElement(renderer.prepVML(markup),
 					null, {
 						left: pInt(elemStyle.left) + 1,
@@ -494,16 +506,19 @@ var VMLRendererExtension = { // inherit SVGRenderer
 	 */
 	init: function (container, width, height) {
 		var renderer = this,
-			boxWrapper;
+			boxWrapper,
+			box;
 
 		renderer.alignedObjects = [];
 
 		boxWrapper = renderer.createElement(DIV);
+		box = boxWrapper.element;
+		box.style.position = RELATIVE; // for freeform drawing using renderer directly
 		container.appendChild(boxWrapper.element);
 
 
 		// generate the containing box
-		renderer.box = boxWrapper.element;
+		renderer.box = box;
 		renderer.boxWrapper = boxWrapper;
 
 
@@ -522,6 +537,15 @@ var VMLRendererExtension = { // inherit SVGRenderer
 				'{ behavior:url(#default#VML); display: inline-block; } ';
 
 		}
+	},
+	
+	
+	/**
+	 * Detect whether the renderer is hidden. This happens when one of the parent elements
+	 * has display: none
+	 */
+	isHidden: function () {
+		return !this.box.offsetWidth;			
 	},
 
 	/**
@@ -545,8 +569,9 @@ var VMLRendererExtension = { // inherit SVGRenderer
 			top: y,
 			width: width,
 			height: height,
-			getCSS: function (inverted) {
-				var rect = this,//clipRect.element.style,
+			getCSS: function (wrapper) {
+				var inverted = wrapper.inverted,
+					rect = this,
 					top = rect.top,
 					left = rect.left,
 					right = left + rect.width,
@@ -560,19 +585,20 @@ var VMLRendererExtension = { // inherit SVGRenderer
 					};
 
 				// issue 74 workaround
-				if (!inverted && docMode8) {
+				if (!inverted && docMode8 && wrapper.element.nodeName !== 'IMG') {
 					extend(ret, {
 						width: right + PX,
 						height: bottom + PX
 					});
 				}
+				
 				return ret;
 			},
 
 			// used in attr and animation to update the clipping of all members
 			updateClipping: function () {
 				each(clipRect.members, function (member) {
-					member.css(clipRect.getCSS(member.inverted));
+					member.css(clipRect.getCSS(member));
 				});
 			}
 		});
@@ -589,24 +615,55 @@ var VMLRendererExtension = { // inherit SVGRenderer
 	color: function (color, elem, prop) {
 		var colorObject,
 			regexRgba = /^rgba/,
-			markup;
+			markup,
+			fillType;
 
-		if (color && color[LINEAR_GRADIENT]) {
+		// Check for linear or radial gradient
+		if (color && color.linearGradient) {
+			fillType = 'gradient';
+		} else if (color && color.radialGradient) {
+			fillType = 'pattern';
+		}
+		
+		
+		if (fillType) {
 
 			var stopColor,
 				stopOpacity,
-				linearGradient = color[LINEAR_GRADIENT],
-				x1 = linearGradient.x1 || linearGradient[0] || 0,
-				y1 = linearGradient.y1 || linearGradient[1] || 0,
-				x2 = linearGradient.x2 || linearGradient[2] || 0,
-				y2 = linearGradient.y2 || linearGradient[3] || 0,
+				gradient = color.linearGradient || color.radialGradient,
+				x1,
+				y1, 
+				x2,
+				y2,
 				angle,
-				color1,
 				opacity1,
+				opacity2,
+				color1,
 				color2,
-				opacity2;
+				fillAttr = '',
+				stops = color.stops,
+				firstStop,
+				lastStop,
+				colors = [];
+			
+			// Extend from 0 to 1
+			firstStop = stops[0];
+			lastStop = stops[stops.length - 1];
+			if (firstStop[0] > 0) {
+				stops.unshift([
+					0,
+					firstStop[1]
+				]);
+			}
+			if (lastStop[0] < 1) {
+				stops.push([
+					1,
+					lastStop[1]
+				]);
+			}
 
-			each(color.stops, function (stop, i) {
+			// Compute the stops
+			each(stops, function (stop, i) {
 				if (regexRgba.test(stop[1])) {
 					colorObject = Color(stop[1]);
 					stopColor = colorObject.get('rgb');
@@ -615,30 +672,57 @@ var VMLRendererExtension = { // inherit SVGRenderer
 					stopColor = stop[1];
 					stopOpacity = 1;
 				}
+				
+				// Build the color attribute
+				colors.push((stop[0] * 100) + '% ' + stopColor); 
 
-				if (!i) { // first
-					color1 = stopColor;
+				// Only start and end opacities are allowed, so we use the first and the last
+				if (!i) {
 					opacity1 = stopOpacity;
+					color1 = stopColor;
 				} else {
-					color2 = stopColor;
 					opacity2 = stopOpacity;
+					color2 = stopColor;
 				}
 			});
-
-			// Apply the gradient to fills only.
-			if (prop === 'fill') {
-				// calculate the angle based on the linear vector
+			
+			// Handle linear gradient angle
+			if (fillType === 'gradient') {
+				x1 = gradient.x1 || gradient[0] || 0;
+				y1 = gradient.y1 || gradient[1] || 0;
+				x2 = gradient.x2 || gradient[2] || 0;
+				y2 = gradient.y2 || gradient[3] || 0;
 				angle = 90  - math.atan(
 					(y2 - y1) / // y vector
 					(x2 - x1) // x vector
 					) * 180 / mathPI;
-	
-	
+				
+			// Radial (circular) gradient
+			} else { 
+				// http://jsfiddle.net/highcharts/XRbCc/
+				// TODO:
+				// - first color becomes black in IE8 standards mode
+				// - implement cx, cy and r through "size" and "origin" attributes, see http://midiwebconcept.free.fr/RadialGrad.htm
+				// - check whether gradient stops are supported
+				// - add global option for gradient image
+				// - make new gradient image, try using PNG
+				fillAttr = 'src="http://code.highcharts.com/gfx/radial-gradient.png" ' +
+					'size="1,1" ' +
+					'origin="0,0" ' +
+					'color="' + color1 + '" ' +
+					'color2="' + color2 + '" ';
+			}
+			
+			
+
+			// Apply the gradient to fills only.
+			if (prop === 'fill') {
+				
 				// when colors attribute is used, the meanings of opacity and o:opacity2
 				// are reversed.
-				markup = ['<fill colors="0% ', color1, ',100% ', color2, '" angle="', angle,
+				markup = ['<fill colors="' + colors.join(',') + '" angle="', angle,
 					'" opacity="', opacity2, '" o:opacity2="', opacity1,
-					'" type="gradient" focus="100%" method="sigma" />'];
+					'" type="', fillType, '" ', fillAttr, 'focus="100%" method="any" />'];
 				createElement(this.prepVML(markup), null, null, elem);
 			
 			// Gradients are not supported for VML stroke, return the first color. #722.
@@ -707,12 +791,17 @@ var VMLRendererExtension = { // inherit SVGRenderer
 	 * @param {Array} path
 	 */
 	path: function (path) {
+		var attr = {
+			// subpixel precision down to 0.1 (width and height = 1px)
+			coordsize: '10 10'
+		};
+		if (isArray(path)) {
+			attr.d = path;
+		} else if (isObject(path)) { // attributes
+			extend(attr, path);
+		}
 		// create the shape
-		return this.createElement('shape').attr({
-			// subpixel precision down to 0.1 (width and height = 10px)
-			coordsize: '100 100',
-			d: path
-		});
+		return this.createElement('shape').attr(attr);
 	},
 
 	/**
@@ -796,7 +885,7 @@ var VMLRendererExtension = { // inherit SVGRenderer
 	 */
 	invertChild: function (element, parentNode) {
 		var parentStyle = parentNode.style;
-
+		console.log('Warning in VMLRenderer.js: We may have to replace 10 for 1 below after changing the coordsize');
 		css(element, {
 			flip: 'x',
 			left: pInt(parentStyle.width) - 10,
@@ -821,7 +910,8 @@ var VMLRendererExtension = { // inherit SVGRenderer
 				sinEnd = mathSin(end),
 				innerRadius = options.innerR,
 				circleCorrection = 0.08 / radius, // #760
-				innerCorrection = (innerRadius && 0.25 / innerRadius) || 0;
+				innerCorrection = (innerRadius && 0.1 / innerRadius) || 0,
+				ret;
 
 			if (end - start === 0) { // no angle, don't show it.
 				return ['x'];
@@ -833,7 +923,7 @@ var VMLRendererExtension = { // inherit SVGRenderer
 				cosEnd = mathCos(start + innerCorrection);
 			}
 
-			return [
+			ret = [
 				'wa', // clockwise arc to
 				x - radius, // left
 				y - radius, // top
@@ -842,9 +932,18 @@ var VMLRendererExtension = { // inherit SVGRenderer
 				x + radius * cosStart, // start x
 				y + radius * sinStart, // start y
 				x + radius * cosEnd, // end x
-				y + radius * sinEnd, // end y
+				y + radius * sinEnd  // end y
+			];
 
+			if (options.open) {
+				ret.push(
+					M, 
+					x - innerRadius, 
+					y - innerRadius
+				);
+			}
 
+			ret.push(
 				'at', // anti clockwise arc to
 				x - innerRadius, // left
 				y - innerRadius, // top
@@ -854,10 +953,11 @@ var VMLRendererExtension = { // inherit SVGRenderer
 				y + innerRadius * sinEnd, // start y
 				x + innerRadius * cosStart, // end x
 				y + innerRadius * sinStart, // end y
-
 				'x', // finish path
 				'e' // close
-			];
+			);
+			
+			return ret;
 
 		},
 		// Add circle symbol path. This performs significantly faster than v:oval.

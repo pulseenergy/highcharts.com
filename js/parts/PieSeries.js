@@ -1,4 +1,39 @@
 /**
+ * Set the default options for pie
+ */
+defaultPlotOptions.pie = merge(defaultSeriesOptions, {
+	borderColor: '#FFFFFF',
+	borderWidth: 1,
+	center: ['50%', '50%'],
+	colorByPoint: true, // always true for pies
+	dataLabels: {
+		// align: null,
+		// connectorWidth: 1,
+		// connectorColor: point.color,
+		// connectorPadding: 5,
+		distance: 30,
+		enabled: true,
+		formatter: function () {
+			return this.point.name;
+		},
+		// softConnector: true,
+		y: 5
+	},
+	//innerSize: 0,
+	legendType: 'point',
+	marker: null, // point options are specified in the base options
+	size: '75%',
+	showInLegend: false,
+	slicedOffset: 10,
+	states: {
+		hover: {
+			brightness: 0.1,
+			shadow: false
+		}
+	}
+});
+
+/**
  * Extended point object for pies
  */
 var PiePoint = extendClass(Point, {
@@ -100,7 +135,7 @@ var PiePoint = extendClass(Point, {
 /**
  * The Pie series class
  */
-var PieSeries = extendClass(Series, {
+var PieSeries = {
 	type: 'pie',
 	isCartesian: false,
 	pointClass: PiePoint,
@@ -119,7 +154,7 @@ var PieSeries = extendClass(Series, {
 	},
 
 	/**
-	 * Animate the column heights one by one from zero
+	 * Animate the pies in
 	 */
 	animate: function () {
 		var series = this,
@@ -156,11 +191,43 @@ var PieSeries = extendClass(Series, {
 	 * Extend the basic setData method by running processData and generatePoints immediately,
 	 * in order to access the points from the legend.
 	 */
-	setData: function () {
-		Series.prototype.setData.apply(this, arguments);
+	setData: function (data, redraw) {
+		Series.prototype.setData.call(this, data, false);
 		this.processData();
 		this.generatePoints();
+		if (pick(redraw, true)) {
+			this.chart.redraw();
+		} 
 	},
+	
+	/**
+	 * Get the center of the pie based on the size and center options relative to the  
+	 * plot area. Borrowed by the polar and gauge series types.
+	 */
+	getCenter: function () {
+		
+		var options = this.options,
+			chart = this.chart,
+			plotWidth = chart.plotWidth,
+			plotHeight = chart.plotHeight,
+			positions = options.center.concat([options.size, options.innerSize || 0]),
+			smallestSize = mathMin(plotWidth, plotHeight),
+			isPercent;			
+		
+		return map(positions, function (length, i) {
+
+			isPercent = /%$/.test(length);
+			return isPercent ?
+				// i == 0: centerX, relative to width
+				// i == 1: centerY, relative to height
+				// i == 2: size, relative to smallestSize
+				// i == 4: innerSize, relative to smallestSize
+				[plotWidth, plotHeight, smallestSize, smallestSize][i] *
+					pInt(length) / 100 :
+				length;
+		});
+	},
+	
 	/**
 	 * Do translation for pie slices
 	 */
@@ -174,35 +241,20 @@ var PieSeries = extendClass(Series, {
 			options = series.options,
 			slicedOffset = options.slicedOffset,
 			connectorOffset = slicedOffset + options.borderWidth,
-			positions = options.center.concat([options.size, options.innerSize || 0]),
+			positions,
 			chart = series.chart,
-			plotWidth = chart.plotWidth,
-			plotHeight = chart.plotHeight,
 			start,
 			end,
 			angle,
 			points = series.points,
 			circ = 2 * mathPI,
 			fraction,
-			smallestSize = mathMin(plotWidth, plotHeight),
-			isPercent,
 			radiusX, // the x component of the radius vector for a given point
 			radiusY,
 			labelDistance = options.dataLabels.distance;
 
 		// get positions - either an integer or a percentage string must be given
-		positions = map(positions, function (length, i) {
-
-			isPercent = /%$/.test(length);
-			return isPercent ?
-				// i == 0: centerX, relative to width
-				// i == 1: centerY, relative to height
-				// i == 2: size, relative to smallestSize
-				// i == 4: innerSize, relative to smallestSize
-				[plotWidth, plotHeight, smallestSize, smallestSize][i] *
-					pInt(length) / 100 :
-				length;
-		});
+		series.center = positions = series.getCenter();
 
 		// utility for getting the x value from a given y, used for anticollision logic in data labels
 		series.getX = function (y, left) {
@@ -213,9 +265,6 @@ var PieSeries = extendClass(Series, {
 				(left ? -1 : 1) *
 				(mathCos(angle) * (positions[2] / 2 + labelDistance));
 		};
-
-		// set center for later use
-		series.center = positions;
 
 		// get the total sum
 		each(points, function (point) {
@@ -268,7 +317,7 @@ var PieSeries = extendClass(Series, {
 					angle < circ / 4 ? 'left' : 'right', // alignment
 				angle // center angle
 			];
-
+			
 			// API properties
 			point.percentage = fraction * 100;
 			point.total = total;
@@ -352,14 +401,15 @@ var PieSeries = extendClass(Series, {
 			if (graphic) {
 				graphic.animate(shapeArgs);
 			} else {
-				point.graphic =
-					renderer.arc(shapeArgs)
+				point.graphic = graphic = renderer.arc(shapeArgs)
+					.setRadialReference(series.center)
 					.attr(extend(
 						point.pointAttr[NORMAL_STATE],
 						{ 'stroke-linejoin': 'round' }
 					))
 					.add(point.group)
 					.shadow(shadow, shadowGroup);
+				
 			}
 
 			// detect point specific visibility
@@ -431,7 +481,7 @@ var PieSeries = extendClass(Series, {
 		// assume equal label heights
 		labelHeight = halves[0][0] && halves[0][0].dataLabel && halves[0][0].dataLabel.getBBox().height;
 
-		/* Loop over the points in each quartile, starting from the top and bottom
+		/* Loop over the points in each half, starting from the top and bottom
 		 * of the pie to detect overlapping labels.
 		 */
 		while (i--) {
@@ -444,116 +494,127 @@ var PieSeries = extendClass(Series, {
 				length = points.length,
 				slotIndex;
 
-
-			// build the slots
-			for (pos = centerY - radius - distanceOption; pos <= centerY + radius + distanceOption; pos += labelHeight) {
-				slots.push(pos);
-				// visualize the slot
-				/*
-				var slotX = series.getX(pos, i) + chart.plotLeft - (i ? 100 : 0),
-					slotY = pos + chart.plotTop;
-				if (!isNaN(slotX)) {
-					chart.renderer.rect(slotX, slotY - 7, 100, labelHeight)
-						.attr({
-							'stroke-width': 1,
-							stroke: 'silver'
-						})
-						.add();
-					chart.renderer.text('Slot '+ (slots.length - 1), slotX, slotY + 4)
-						.attr({
-							fill: 'silver'
-						}).add();
+			// Only do anti-collision when we are outside the pie and have connectors (#856)
+			if (distanceOption > 0) {
+				
+				// build the slots
+				for (pos = centerY - radius - distanceOption; pos <= centerY + radius + distanceOption; pos += labelHeight) {
+					slots.push(pos);
+					// visualize the slot
+					/*
+					var slotX = series.getX(pos, i) + chart.plotLeft - (i ? 100 : 0),
+						slotY = pos + chart.plotTop;
+					if (!isNaN(slotX)) {
+						chart.renderer.rect(slotX, slotY - 7, 100, labelHeight)
+							.attr({
+								'stroke-width': 1,
+								stroke: 'silver'
+							})
+							.add();
+						chart.renderer.text('Slot '+ (slots.length - 1), slotX, slotY + 4)
+							.attr({
+								fill: 'silver'
+							}).add();
+					}
+					// */
 				}
-				// */
+				slotsLength = slots.length;
+	
+				// if there are more values than available slots, remove lowest values
+				if (length > slotsLength) {
+					// create an array for sorting and ranking the points within each quarter
+					rankArr = [].concat(points);
+					rankArr.sort(sort);
+					j = length;
+					while (j--) {
+						rankArr[j].rank = j;
+					}
+					j = length;
+					while (j--) {
+						if (points[j].rank >= slotsLength) {
+							points.splice(j, 1);
+						}
+					}
+					length = points.length;
+				}
+	
+				// The label goes to the nearest open slot, but not closer to the edge than
+				// the label's index.
+				for (j = 0; j < length; j++) {
+	
+					point = points[j];
+					labelPos = point.labelPos;
+	
+					var closest = 9999,
+						distance,
+						slotI;
+	
+					// find the closest slot index
+					for (slotI = 0; slotI < slotsLength; slotI++) {
+						distance = mathAbs(slots[slotI] - labelPos[1]);
+						if (distance < closest) {
+							closest = distance;
+							slotIndex = slotI;
+						}
+					}
+	
+					// if that slot index is closer to the edges of the slots, move it
+					// to the closest appropriate slot
+					if (slotIndex < j && slots[j] !== null) { // cluster at the top
+						slotIndex = j;
+					} else if (slotsLength  < length - j + slotIndex && slots[j] !== null) { // cluster at the bottom
+						slotIndex = slotsLength - length + j;
+						while (slots[slotIndex] === null) { // make sure it is not taken
+							slotIndex++;
+						}
+					} else {
+						// Slot is taken, find next free slot below. In the next run, the next slice will find the
+						// slot above these, because it is the closest one
+						while (slots[slotIndex] === null) { // make sure it is not taken
+							slotIndex++;
+						}
+					}
+	
+					usedSlots.push({ i: slotIndex, y: slots[slotIndex] });
+					slots[slotIndex] = null; // mark as taken
+				}
+				// sort them in order to fill in from the top
+				usedSlots.sort(sort);
 			}
-			slotsLength = slots.length;
-
-			// if there are more values than available slots, remove lowest values
-			if (length > slotsLength) {
-				// create an array for sorting and ranking the points within each quarter
-				rankArr = [].concat(points);
-				rankArr.sort(sort);
-				j = length;
-				while (j--) {
-					rankArr[j].rank = j;
-				}
-				j = length;
-				while (j--) {
-					if (points[j].rank >= slotsLength) {
-						points.splice(j, 1);
-					}
-				}
-				length = points.length;
-			}
-
-			// The label goes to the nearest open slot, but not closer to the edge than
-			// the label's index.
-			for (j = 0; j < length; j++) {
-
-				point = points[j];
-				labelPos = point.labelPos;
-
-				var closest = 9999,
-					distance,
-					slotI;
-
-				// find the closest slot index
-				for (slotI = 0; slotI < slotsLength; slotI++) {
-					distance = mathAbs(slots[slotI] - labelPos[1]);
-					if (distance < closest) {
-						closest = distance;
-						slotIndex = slotI;
-					}
-				}
-
-				// if that slot index is closer to the edges of the slots, move it
-				// to the closest appropriate slot
-				if (slotIndex < j && slots[j] !== null) { // cluster at the top
-					slotIndex = j;
-				} else if (slotsLength  < length - j + slotIndex && slots[j] !== null) { // cluster at the bottom
-					slotIndex = slotsLength - length + j;
-					while (slots[slotIndex] === null) { // make sure it is not taken
-						slotIndex++;
-					}
-				} else {
-					// Slot is taken, find next free slot below. In the next run, the next slice will find the
-					// slot above these, because it is the closest one
-					while (slots[slotIndex] === null) { // make sure it is not taken
-						slotIndex++;
-					}
-				}
-
-				usedSlots.push({ i: slotIndex, y: slots[slotIndex] });
-				slots[slotIndex] = null; // mark as taken
-			}
-			// sort them in order to fill in from the top
-			usedSlots.sort(sort);
-
 
 			// now the used slots are sorted, fill them up sequentially
 			for (j = 0; j < length; j++) {
+				
+				var slot, naturalY;
 
 				point = points[j];
 				labelPos = point.labelPos;
 				dataLabel = point.dataLabel;
-				var slot = usedSlots.pop(),
-					naturalY = labelPos[1];
-
 				visibility = point.visible === false ? HIDDEN : VISIBLE;
-				slotIndex = slot.i;
+				naturalY = labelPos[1];
+				
+				if (distanceOption > 0) {
+					slot = usedSlots.pop();
+					slotIndex = slot.i;
 
-				// if the slot next to currrent slot is free, the y value is allowed
-				// to fall back to the natural position
-				y = slot.y;
-				if ((naturalY > y && slots[slotIndex + 1] !== null) ||
-						(naturalY < y &&  slots[slotIndex - 1] !== null)) {
+					// if the slot next to currrent slot is free, the y value is allowed
+					// to fall back to the natural position
+					y = slot.y;
+					if ((naturalY > y && slots[slotIndex + 1] !== null) ||
+							(naturalY < y &&  slots[slotIndex - 1] !== null)) {
+						y = naturalY;
+					}
+					
+				} else {
 					y = naturalY;
 				}
 
 				// get the x - use the natural x position for first and last slot, to prevent the top
 				// and botton slice connectors from touching each other on either side
-				x = series.getX(slotIndex === 0 || slotIndex === slots.length - 1 ? naturalY : y, i);
-
+				x = options.justify ? 
+					seriesCenter[0] + (i ? -1 : 1) * (radius + distanceOption) :
+					series.getX(slotIndex === 0 || slotIndex === slots.length - 1 ? naturalY : y, i);
+				
 				// move or place the data label
 				dataLabel
 					.attr({
@@ -613,10 +674,16 @@ var PieSeries = extendClass(Series, {
 	drawTracker: ColumnSeries.prototype.drawTracker,
 
 	/**
+	 * Use a simple symbol from column prototype
+	 */
+	drawLegendSymbol: AreaSeries.prototype.drawLegendSymbol,
+
+	/**
 	 * Pies don't have point marker symbols
 	 */
 	getSymbol: function () {}
 
-});
+};
+PieSeries = extendClass(Series, PieSeries);
 seriesTypes.pie = PieSeries;
 

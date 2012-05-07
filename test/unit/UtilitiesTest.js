@@ -159,63 +159,7 @@ UtilTest.prototype.testLin2Log = function () {
 	// TODO: implement
 };
 
-/**
- * Tests if a point is inside a rectangle
- * The rectangle coordinate system is: x and y specifies the _top_ left corner width is the width and height is the height.
- */
-UtilTest.prototype.pointInRect = function (x, y, rect) {
-	var inside =
-		x >= rect.x && x <= (rect.x + rect.width) &&
-		y >= rect.y && y <= (rect.y + rect.height)
-	return inside;
-};
 
-/**
- * Tests if a small rectangle is inside a bigger rectangle by testing each corner.
- */
-UtilTest.prototype.rectInRect = function (smallRect, largeRect) {
-	// (Maybe only two corners need to be tested)
-	var inside = this.pointInRect(smallRect.x, smallRect.y, largeRect); // left top
-	inside = inside && this.pointInRect(smallRect.x + smallRect.width, smallRect.y, largeRect); // right top
-	inside = inside && this.pointInRect(smallRect.x + smallRect.width, smallRect.y + smallRect.height, largeRect); // right bottom
-	inside = inside && this.pointInRect(smallRect.x, smallRect.y + smallRect.height, largeRect); // left bottom
-	return inside;
-};
-
-/**
- * Test the placeBox utility function. It should adjust a tooltip rectangle to be inside the chart but not cover the point itself.
- */
-UtilTest.prototype.testPlaceBox = function () {
-	var chartRect = {x: 0, y: 0, width: 100, height: 100 },
-		tooltipSize = {width: 50, height: 20},
-		dataPoint = {x: 0, y: 50},
-		tooltipPoint,
-		boxPoint;
-
-	boxPoint = placeBox(tooltipSize.width, tooltipSize.height, chartRect.x, chartRect.y, chartRect.width, chartRect.height, dataPoint, 12);
-	extend(boxPoint, tooltipSize);
-	assertTrue('Left rectInRect chart', this.rectInRect(boxPoint, chartRect));
-	assertFalse('Left tooltip cover point', this.pointInRect(dataPoint.x, dataPoint.y, boxPoint));
-
-	dataPoint.x = 100;
-	boxPoint = placeBox(tooltipSize.width, tooltipSize.height, chartRect.x, chartRect.y, chartRect.width, chartRect.height, dataPoint, 12);
-	extend(boxPoint, tooltipSize);
-	assertTrue('Right rectInRect chart', this.rectInRect(boxPoint, chartRect));
-	assertFalse('Right tooltip cover point', this.pointInRect(dataPoint.x, dataPoint.y, boxPoint));
-
-	dataPoint.x = 50;
-	boxPoint = placeBox(tooltipSize.width, tooltipSize.height, chartRect.x, chartRect.y, chartRect.width, chartRect.height, dataPoint, 12);
-	extend(boxPoint, tooltipSize);
-	assertTrue('Mid rectInRect chart', this.rectInRect(boxPoint, chartRect));
-	assertFalse('Mid tooltip cover point', this.pointInRect(dataPoint.x, dataPoint.y, boxPoint));
-
-	dataPoint.x = 75;
-	dataPoint.y = 5;
-	boxPoint = placeBox(tooltipSize.width, tooltipSize.height, chartRect.x, chartRect.y, chartRect.width, chartRect.height, dataPoint, 12);
-	extend(boxPoint, tooltipSize);
-	assertTrue('TopRight rectInRect chart', this.rectInRect(boxPoint, chartRect));
-	assertFalse('TopRight tooltip cover point', this.pointInRect(dataPoint.x, dataPoint.y, boxPoint));
-};
 
 /**
  * Tests that the stable sort utility works.
@@ -287,3 +231,20 @@ UtilTest.prototype.testDestroyObjectProperties = function () {
 	assertUndefined('Property should be undefined', testObject.label);
 	assertUndefined('Property should be undefined', testObject.noDestroy);
 };
+
+/**
+ * Test number formatting
+ */
+UtilTest.prototype.testNumberFormat = function () {
+	
+	assertEquals('Integer with decimals', "1.00", numberFormat(1, 2));
+	assertEquals('Integer with decimal point', "1,0", numberFormat(1, 1, ','));
+	assertEquals('Integer with thousands sep', "1 000", numberFormat(1000, null, null, ' '));
+	
+	// auto decimals
+	assertEquals('Auto decimals', "1.234", numberFormat(1.234, -1));
+	assertEquals('Auto decimals on string', "0", numberFormat("String", -1));
+	assertEquals('Auto decimals on integer', "10", numberFormat(10, -1));
+	assertEquals('Auto decimals on undefined', "0", numberFormat(undefined, -1));
+	assertEquals('Auto decimals on null', "0", numberFormat(null, -1));
+}

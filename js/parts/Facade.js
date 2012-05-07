@@ -1,23 +1,29 @@
 
 // global variables
 extend(Highcharts, {
+	
+	// Constructors
+	Axis: Axis,
+	CanVGRenderer: CanVGRenderer,
 	Chart: Chart,
+	Color: Color,
+	Legend: Legend,
+	Point: Point,
+	Tick: Tick,
+	Tooltip: Tooltip,
+	Renderer: Renderer,
+	Series: Series,
+	SVGRenderer: SVGRenderer,
+	VMLRenderer: VMLRenderer,
+	
+	// Various
 	dateFormat: dateFormat,
 	pathAnim: pathAnim,
 	getOptions: getOptions,
 	hasBidiBug: hasBidiBug,
 	numberFormat: numberFormat,
-	Point: Point,
-	Color: Color,
-	Renderer: Renderer,
-	SVGRenderer: SVGRenderer,
-	VMLRenderer: VMLRenderer,
-	CanVGRenderer: CanVGRenderer,
 	seriesTypes: seriesTypes,
 	setOptions: setOptions,
-	Series: Series,
-
-	// Expose utility funcitons for modules
 	addEvent: addEvent,
 	removeEvent: removeEvent,
 	createElement: createElement,
@@ -30,7 +36,7 @@ extend(Highcharts, {
 	pick: pick,
 	splat: splat,
 	extendClass: extendClass,
-	placeBox: placeBox,
+	pInt: pInt,
 	product: '@product.name@',
 	version: '@product.version@'
 });

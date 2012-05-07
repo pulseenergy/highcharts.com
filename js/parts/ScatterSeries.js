@@ -1,4 +1,20 @@
 /**
+ * Set the default options for scatter
+ */
+defaultPlotOptions.scatter = merge(defaultSeriesOptions, {
+	lineWidth: 0,
+	states: {
+		hover: {
+			lineWidth: 0
+		}
+	},
+	tooltip: {
+		headerFormat: '<span style="font-size: 10px; color:{series.color}">{series.name}</span><br/>',
+		pointFormat: 'x: <b>{point.x}</b><br/>y: <b>{point.y}</b><br/>'
+	}
+});
+
+/**
  * The scatter series class
  */
 var ScatterSeries = extendClass(Series, {
@@ -39,7 +55,7 @@ var ScatterSeries = extendClass(Series, {
 		while (i--) {
 			graphic = points[i].graphic;
 			if (graphic) { // doesn't exist for null points
-				graphic.element._index = i; 
+				graphic.element._i = i; 
 			}
 		}
 		
@@ -51,7 +67,9 @@ var ScatterSeries = extendClass(Series, {
 				})
 				.on(hasTouch ? 'touchstart' : 'mouseover', function (e) {
 					series.onMouseOver();
-					points[e.target._index].onMouseOver();
+					if (e.target._i !== UNDEFINED) { // undefined on graph in scatterchart
+						points[e.target._i].onMouseOver();
+					}
 				})
 				.on('mouseout', function () {
 					if (!series.options.stickyTracking) {
