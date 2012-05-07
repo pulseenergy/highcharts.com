@@ -7793,16 +7793,6 @@ function Chart(userOptions, callback) {
 		}
 
 		/**
-		 * Reset the drag-to-zoom state.
-		 */
-		function resetDragging() {
-			css(container, { cursor: 'auto' });
-			chart.mouseIsDown = mouseIsDown = hasDragged = false;
-			removeEvent(doc, hasTouch ? 'touchend' : 'mouseup', drop);
-		}
-		this.resetDragging = resetDragging;
-
-		/**
 		 * Mouse up or outside the plot area
 		 */
 		function drop() {
@@ -7856,7 +7846,12 @@ function Chart(userOptions, callback) {
 				}
 				selectionMarker = selectionMarker.destroy();
 			}
-			resetDragging();
+
+			css(container, { cursor: 'auto' });
+
+			chart.mouseIsDown = mouseIsDown = hasDragged = false;
+			removeEvent(doc, hasTouch ? 'touchend' : 'mouseup', drop);
+
 		}
 
 		/**
@@ -7886,41 +7881,6 @@ function Chart(userOptions, callback) {
 		 */
 		function setDOMEvents() {
 			var lastWasOutsidePlot = true;
-
-			// The mousedown event handler
-			var mouseDown = function (e, eventType) {
-				var hoverPoint = chart.hoverPoint;
-				// Detect clicks on trackers or tracker groups, #783 
-				if (hoverPoint && (attr(e.target, 'isTracker') || attr(e.target.parentNode, 'isTracker'))) {
-					var plotX = hoverPoint.plotX,
-						plotY = hoverPoint.plotY;
-
-					// add page position info
-					extend(hoverPoint, {
-						pageX: chartPosition.left + plotLeft +
-							(inverted ? plotWidth - plotY : plotX),
-						pageY: chartPosition.top + plotTop +
-							(inverted ? plotHeight - plotX : plotY)
-					});
-
-					// the series click event
-					fireEvent(hoverPoint.series, eventType, extend(e, {
-						point: hoverPoint
-					}));
-
-					// the point click event
-					hoverPoint.firePointEvent(eventType, e);
-
-				} else {
-					extend(e, getMouseCoordinates(e));
-
-					// fire a click event in the chart
-					if (isInsidePlot(e.chartX - plotLeft, e.chartY - plotTop)) {
-						fireEvent(chart, eventType, e);
-					}
-				}
-			};
-
 			/*
 			 * Record the starting position of a dragoperation
 			 */
@@ -7938,7 +7898,6 @@ function Chart(userOptions, callback) {
 				mouseDownY = e.chartY;
 
 				addEvent(doc, hasTouch ? 'touchend' : 'mouseup', drop);
-				mouseDown(e, 'mousedown');
 			};
 
 			// The mousemove, touchmove and touchstart event handler
@@ -8097,19 +8056,76 @@ function Chart(userOptions, callback) {
 				}
 			};
 
-			// MooTools 1.2.3 doesn't fire this in IE when using addEvent
+			// The click, dblclick, and contextmenu event handler
 			var click = function (e, eventType) {
+				var hoverPoint = chart.hoverPoint;
 				e = normalizeMouseEvent(e);
-				if (!hasDragged) {
-					mouseDown(e, eventType);
+
+				if (eventType == 'contextmenu') {
+					// QUESTION-CLC Should there be a configuration option to control default action prevention?
+					// NOTE-CLC Uncomment the following to displace the browser's context menu
+					if (e.stopPropagation) {
+						e.stopPropagation();
+						e.preventDefault();
+					}
+					else {
+						e.cancelBubble = true;
+						e.returnValue = false;
+					}
 				}
+				else {
+					e.cancelBubble = true; // IE specific
+				}
+
+				if (!hasDragged) {
+					
+					// Detect clicks on trackers or tracker groups, #783 
+					if (hoverPoint && (attr(e.target, 'isTracker') || attr(e.target.parentNode, 'isTracker'))) {
+						var plotX = hoverPoint.plotX,
+							plotY = hoverPoint.plotY;
+
+						// add page position info
+						extend(hoverPoint, {
+							pageX: chartPosition.left + plotLeft +
+								(inverted ? plotWidth - plotY : plotX),
+							pageY: chartPosition.top + plotTop +
+								(inverted ? plotHeight - plotX : plotY)
+						});
+
+						// the series click event
+						fireEvent(hoverPoint.series, eventType, extend(e, {
+							point: hoverPoint
+						}));
+
+						// the point click event
+						hoverPoint.firePointEvent(eventType, e);
+
+					} else {
+						extend(e, getMouseCoordinates(e));
+
+						// fire a click event in the chart
+						if (isInsidePlot(e.chartX - plotLeft, e.chartY - plotTop)) {
+							fireEvent(chart, eventType, e);
+						}
+					}
+				}
+				// reset mouseIsDown and hasDragged
+				hasDragged = false;
 			};
+
+			// MooTools 1.2.3 doesn't fire this in IE when using addEvent
 			container.onclick = function (e) {
 				click(e, 'click');
 			};
+
 			container.ondblclick = function (e) {
 				click(e, 'dblclick');
 			};
+
+			container.oncontextmenu = function (e) {
+				return click(e, 'contextmenu');
+			};
+
 		}
 
 		/**
