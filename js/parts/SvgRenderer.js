@@ -417,8 +417,19 @@ SVGElement.prototype = {
 				handler();
 			};
 		}
-		// simplest possible event model for internal use
-		this.element['on' + eventType] = fn;
+
+		// contextmenu event handler needs to be registered properly for IE9
+		// it would be nice to use this code globally, but .destroy() and others look at onclick directly.
+		if (eventType === 'contextmenu' && isIE) {
+			if (this.element.addEventListener) {
+				this.element.addEventListener(eventType, fn, true);
+			} else {
+				this.element.attachEvent('on' + eventType, fn);
+			}
+		} else {
+			// simplest possible event model for internal use
+			this.element['on' + eventType] = fn;
+		}
 		return this;
 	},
 
