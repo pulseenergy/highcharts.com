@@ -316,7 +316,6 @@ seriesProto.processData = function () {
 		if (options.pointRange === null) { // null means auto, as for columns, candlesticks and OHLC
 			series.pointRange = groupPositions.info.totalRange;
 		}
-		series.closestPointRange = groupPositions.info.totalRange;
 		
 		// set series props
 		series.processedXData = groupedXData;

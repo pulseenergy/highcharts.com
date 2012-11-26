@@ -978,27 +978,11 @@ Series.prototype = {
 				cropped = true;
 			}
 		}
-		
-		
-		// Find the closest distance between processed points
-		for (i = processedXData.length - 1; i > 0; i--) {
-			distance = processedXData[i] - processedXData[i - 1];
-			if (closestPointRange === UNDEFINED || distance < closestPointRange) {
-				closestPointRange = distance;
-			}
-		}
-		
-		// Record the properties
+
 		series.cropped = cropped; // undefined or true
 		series.cropStart = cropStart;
 		series.processedXData = processedXData;
 		series.processedYData = processedYData;
-		
-		if (options.pointRange === null) { // null means auto, as for columns, candlesticks and OHLC
-			series.pointRange = closestPointRange || 1;
-		}
-		series.closestPointRange = closestPointRange;
-		
 	},
 
 	/**
