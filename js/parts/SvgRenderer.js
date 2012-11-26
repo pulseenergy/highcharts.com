@@ -787,6 +787,53 @@ SVGElement.prototype = {
 
 		return bBox;
 	},
+	getBBoxBeforeRotation: function (refresh) {
+		var wrapper = this,
+			bBox,
+			element = wrapper.element;
+
+		// SVG elements
+		if (element.namespaceURI === SVG_NS) {
+			try { // Fails in Firefox if the container has display: none.
+
+				bBox = element.getBBox ?
+					// SVG: use extend because IE9 is not allowed to change width and height in case
+					// of rotation (below)
+					extend({}, element.getBBox()) :
+					// Canvas renderer: // TODO: can this be removed now that we're checking for the SVG NS?
+					{
+						width: element.offsetWidth,
+						height: element.offsetHeight
+					};
+			} catch (e) {}
+
+			// If the bBox is not set, the try-catch block above failed. The other condition
+			// is for Opera that returns a width of -Infinity on hidden elements.
+			if (!bBox || bBox.width < 0) {
+				bBox = { width: 0, height: 0 };
+			}
+
+		// VML Renderer or useHTML within SVG
+		} else {
+			bBox = wrapper.htmlGetBBox(refresh);
+
+			// try to work out the dimensions of the contained element before rotation
+			if (wrapper.rotation) {
+				var rads = deg2rad * wrapper.rotation;
+				if (wrapper.textWidth) {
+					var width = pInt(wrapper.textWidth);
+					return { width: width, height: (bBox.width - width * mathCos(rads)) / mathSin(rads) };
+				}
+				// if we don't have textWidth, then assume the contained text doesn't wrap (yikes!)
+				if (wrapper.element.style.lineHeight) {
+					var height = pInt(wrapper.element.style.lineHeight);
+					return { width: (bBox.width - height * mathSin(rads)) / mathCos(rads), height: height };
+				}
+			}
+		}
+
+		return bBox;
+	},
 
 	/**
 	 * Show the element

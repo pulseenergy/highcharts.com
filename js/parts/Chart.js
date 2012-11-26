@@ -1602,6 +1602,7 @@ function Chart(options, callback) {
 				titleMargin = 0,
 				axisTitleOptions = options.title,
 				labelOptions = options.labels,
+				rotation = labelOptions.rotation,
 				directionFactor = [-1, 1, 1, -1][side],
 				n;
 
@@ -1626,6 +1627,8 @@ function Chart(options, callback) {
 
 				});
 
+				var labelTextWidth = 0;
+				var labelTextHeight = 0;
 				each(tickPositions, function (pos) {
 					// left side must be align: right and right side must have align: left for labels
 					if (side === 0 || side === 2 || { 1: 'left', 3: 'right' }[side] === labelOptions.align) {
@@ -1635,9 +1638,35 @@ function Chart(options, callback) {
 							ticks[pos].getLabelSize(),
 							labelOffset
 						);
+						var bbox = ticks[pos].label.getBBoxBeforeRotation();
+						labelTextWidth = mathMax(
+							bbox[horiz ? 'width' : 'height'],
+							labelTextWidth
+						);
+						labelTextHeight = mathMax(
+							bbox[horiz ? 'height' : 'width'],
+							labelTextHeight
+						);
 					}
 
 				});
+
+				// TODO check this math so that it works on any side
+				if (horiz) {
+					var allowedTickWidth = mathFloor(plotWidth / (tickPositions.length - 1));
+					var heightLimit = allowedTickWidth * mathSin(-rotation * deg2rad);
+					var widthLimit = allowedTickWidth * mathCos(-rotation * deg2rad);
+					if (labelTextHeight > heightLimit && labelTextWidth > widthLimit) {
+						// TODO these aren't correct - the relationship isn't linear unless rotation = 0 (or 90)
+						var timesTooMany = mathMin(labelTextHeight / heightLimit, labelTextWidth / widthLimit);
+						var r = mathCeil(timesTooMany);
+						for (n in ticks) {
+							if (n % r != 0) {
+								ticks[n].label.attr({ text: "" });
+							}
+						}
+					}
+				}
 
 				if (staggerLines) {
 					labelOffset += (staggerLines - 1) * 16;
