@@ -4182,6 +4182,10 @@ function Chart(options, callback) {
 	 * @param {Object|Boolean} animation
 	 */
 	resize = function (width, height, animation) {
+		if (chart == null) {
+			return;
+		}
+
 		var chartTitle = chart.title,
 			chartSubtitle = chart.subtitle;
 
